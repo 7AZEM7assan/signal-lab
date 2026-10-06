@@ -4,7 +4,7 @@ A **simulated telemetry replay and validation lab**. It replays recorded (simula
 
 It is a focused educational/reference project for backend and systems engineering topics: Go concurrency, bounded queues and backpressure, streaming APIs, persistence, observability, reproducible replay, and automated validation.
 
-> **Honest scope.** Everything here is simulated. No real hardware, plant, or production deployment is involved, there is no hardware-in-the-loop (HIL) testing, and this repository contains **no recorded performance results** (see [Load exercise](#load-exercise)). It is not a production industrial platform.
+> **Honest scope.** Everything here is simulated. No real hardware, plant, or production deployment is involved, there is no hardware-in-the-loop (HIL) testing, and the only performance numbers in this repository are the local, single-machine results in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) (see [Load exercise](#load-exercise)). It is not a production industrial platform.
 
 **Audience:** engineers reviewing backend/systems work, and anyone who wants a small, readable example of an ingest pipeline with explicit delivery semantics.
 
@@ -345,7 +345,7 @@ The SIL test `test_sil_faults.py` asserts exactly this policy, deriving the expe
 
 Python test dependencies: `pip install -e "sim[dev]"` (pytest, websockets, ruff). SIL and integration tests use a separate compose project (`signallab-test`) with its own volume, so they never touch local development data; the Go integration tests create and drop a uniquely named schema per test, so they do not depend on pre-existing database contents either. In CI, `SIGNALLAB_REQUIRE_DB=1` turns a missing database into a failure instead of a skip.
 
-The CI workflow (`.github/workflows/ci.yml`) runs gofmt, `go vet`, Go tests with `-race` against a PostgreSQL service, ruff, Python unit tests, the SIL suite, and a container build.
+The CI workflow (`../.github/workflows/signal-lab.yml`) runs gofmt, `go vet`, Go tests with `-race` against a PostgreSQL service, ruff, Python unit tests, the SIL suite, and a container build.
 
 **What these tests do not cover.** The slow-WebSocket-client policy is verified deterministically at the hub level (unit tests). The SIL test shows a stuck TCP client does not stall ingestion or other clients, but it cannot force kernel socket buffers to fill on demand, so it does not assert the disconnect itself. Database outage is simulated by stopping the Postgres container. There is no long-running soak, no multi-instance test, and no TLS.
 
@@ -353,7 +353,7 @@ The CI workflow (`.github/workflows/ci.yml`) runs gofmt, `go vet`, Go tests with
 
 ## Load exercise
 
-A reproducible command and dataset recipe, with no results attached:
+A reproducible command and dataset recipe. Local results from one machine (three runs per configuration, with environment and method) are recorded in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md); in short, on a 4 vCPU sandbox VM the documented command acknowledged all 50,000 events with no request errors and no lost events, and its run time (9.4–27.9 s) was dominated by 429 backpressure and `Retry-After` sleeps rather than by the database. Those numbers are not a capacity claim.
 
 ```bash
 make up
@@ -389,6 +389,7 @@ If you record numbers, record them as local results with the environment: CPU mo
 - `/metrics` and `/readyz` are proxied by NGINX for convenience (the monitor page reads them). In any shared deployment, keep metrics on an internal network.
 - The container runs as a non-root user on a distroless image. pprof is off by default.
 - Inputs are size-limited, validated, parameterised in SQL, and never echoed back in error details or logs. WebSocket origin checks are on by default.
+- This repository is a GitHub Pages site; Pages would serve these files statically, but the service itself only runs locally.
 
 ## Dependency choices
 
