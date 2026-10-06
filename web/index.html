@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signal Lab monitor</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --fg:#1b1f24; --muted:#657080; --line:#dde1e7; --ok:#1a7f4b; --warn:#b26a00; --bad:#c0362c; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14171b; --card:#1c2026; --fg:#e6e9ee; --muted:#9aa5b4; --line:#2b313a; --ok:#4cc38a; --warn:#e5a13a; --bad:#ef6f64; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui, sans-serif; }
+  h1 { font-size:18px; margin:0 0 2px; }
+  .sub { color:var(--muted); margin:0 0 14px; }
+  .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px; }
+  .card h2 { font-size:13px; margin:0 0 8px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .row { display:flex; justify-content:space-between; gap:8px; padding:2px 0; }
+  .pill { padding:1px 8px; border-radius:99px; border:1px solid currentColor; font-size:12px; }
+  .ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:3px 6px; border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums; }
+  th { color:var(--muted); font-weight:500; }
+  ul { list-style:none; margin:0; padding:0; max-height:300px; overflow:auto; }
+  li { padding:4px 0; border-bottom:1px solid var(--line); }
+  .meter { height:8px; background:var(--line); border-radius:4px; overflow:hidden; margin:4px 0 8px; }
+  .meter > div { height:100%; width:0; background:var(--ok); transition:width .3s; }
+  .wide { grid-column:1 / -1; }
+  footer { color:var(--muted); margin-top:14px; font-size:12px; }
+</style>
+</head>
+<body>
+<h1>Signal Lab monitor</h1>
+<p class="sub">A minimal live client for the telemetry replay lab. The Go service is the product; this page only watches it.</p>
+
+<div class="grid">
+  <section class="card">
+    <h2>Connection</h2>
+    <div class="row"><span>WebSocket</span><span id="ws" class="pill warn">connecting</span></div>
+    <div class="row"><span>Service readiness</span><span id="ready" class="pill warn">unknown</span></div>
+    <div class="row"><span>Events seen on this page</span><b id="nEvents">0</b></div>
+    <div class="row"><span>Alerts seen on this page</span><b id="nAlerts">0</b></div>
+  </section>
+
+  <section class="card">
+    <h2>Ingestion and queue health</h2>
+    <div class="row"><span>Queue depth</span><b id="queue">–</b></div>
+    <div class="meter"><div id="queueBar"></div></div>
+    <div class="row"><span>Accepted (queued)</span><b id="mAccepted">–</b></div>
+    <div class="row"><span>Rejected: invalid</span><b id="mInvalid">–</b></div>
+    <div class="row"><span>Rejected: overload (429)</span><b id="mOverload">–</b></div>
+    <div class="row"><span>Stored / duplicate / failed</span><b id="mProcessed">–</b></div>
+    <div class="row"><span>WebSocket clients / slow disconnects</span><b id="mWs">–</b></div>
+  </section>
+
+  <section class="card wide">
+    <h2>Latest reading per device</h2>
+    <table>
+      <thead><tr><th>Device</th><th>Event time (UTC)</th><th>Temp °C</th><th>Vibration mm/s</th></tr></thead>
+      <tbody id="devices"><tr><td colspan="4" class="sub">Waiting for events… run <code>make replay-sample</code>.</td></tr></tbody>
+    </table>
+  </section>
+
+  <section class="card wide">
+    <h2>Alert feed</h2>
+    <ul id="alerts"></ul>
+  </section>
+</div>
+<footer>Live messages are best-effort and not replayed after a disconnect; query <code>/api/v1/events</code> to catch up.</footer>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const latest = new Map();
+let nEvents = 0, nAlerts = 0, retry = 1000;
+
+function setPill(el, text, cls) { el.textContent = text; el.className = "pill " + cls; }
+
+function renderDevices() {
+  const body = $("devices");
+  body.replaceChildren();
+  for (const [id, e] of [...latest].sort()) {
+    const tr = document.createElement("tr");
+    for (const v of [id, e.event_time, e.temperature_c.toFixed(2), e.vibration_mm_s.toFixed(2)]) {
+      const td = document.createElement("td"); td.textContent = v; tr.appendChild(td);
+    }
+    body.appendChild(tr);
+  }
+}
+
+function addAlert(a) {
+  const li = document.createElement("li");
+  li.className = "bad";
+  li.textContent = `${a.event_time}  ${a.device_id}  ${a.rule}  observed ${a.observed} (threshold ${a.threshold})`;
+  const list = $("alerts");
+  list.prepend(li);
+  while (list.children.length > 100) list.lastChild.remove();
+}
+
+function connect() {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(`${proto}//${location.host}/ws`);
+  ws.onopen = () => { retry = 1000; setPill($("ws"), "connected", "ok"); };
+  ws.onmessage = (m) => {
+    let msg; try { msg = JSON.parse(m.data); } catch { return; }
+    if (msg.type === "event") { nEvents++; latest.set(msg.data.device_id, msg.data); $("nEvents").textContent = nEvents; renderDevices(); }
+    else if (msg.type === "alert") { nAlerts++; $("nAlerts").textContent = nAlerts; addAlert(msg.data); }
+  };
+  ws.onclose = () => {
+    setPill($("ws"), "disconnected, retrying", "bad");
+    setTimeout(connect, retry); retry = Math.min(retry * 2, 10000);
+  };
+  ws.onerror = () => ws.close();
+}
+
+// Minimal Prometheus text parser: sums samples by metric name and optional label match.
+function sample(text, name, label) {
+  let total = 0, found = false;
+  for (const line of text.split("\n")) {
+    if (!line.startsWith(name)) continue;
+    const rest = line.slice(name.length);
+    if (rest[0] !== "{" && rest[0] !== " ") continue;
+    if (label && !rest.includes(label)) continue;
+    total += parseFloat(line.slice(line.lastIndexOf(" ") + 1)); found = true;
+  }
+  return found ? total : null;
+}
+
+async function poll() {
+  try {
+    const r = await fetch("/readyz", { cache: "no-store" });
+    setPill($("ready"), r.ok ? "ready" : "not ready", r.ok ? "ok" : "bad");
+  } catch { setPill($("ready"), "unreachable", "bad"); }
+  try {
+    const t = await (await fetch("/metrics", { cache: "no-store" })).text();
+    const depth = sample(t, "signallab_queue_depth"), cap = sample(t, "signallab_queue_capacity");
+    $("queue").textContent = `${depth} / ${cap}`;
+    $("queueBar").style.width = cap ? Math.min(100, (100 * depth) / cap) + "%" : "0";
+    $("queueBar").style.background = depth / cap > 0.8 ? "var(--bad)" : depth / cap > 0.5 ? "var(--warn)" : "var(--ok)";
+    $("mAccepted").textContent = sample(t, "signallab_ingest_events_total", 'outcome="accepted"');
+    $("mInvalid").textContent = sample(t, "signallab_ingest_events_total", 'outcome="rejected_invalid"');
+    $("mOverload").textContent = sample(t, "signallab_ingest_events_total", 'outcome="rejected_overload"');
+    $("mProcessed").textContent = ["stored", "duplicate", "failed"].map((o) => sample(t, "signallab_processed_events_total", `outcome="${o}"`)).join(" / ");
+    $("mWs").textContent = `${sample(t, "signallab_ws_clients")} / ${sample(t, "signallab_ws_slow_disconnects_total")}`;
+  } catch { /* leave the last values in place */ }
+}
+
+connect(); poll(); setInterval(poll, 2000);
+</script>
+</body>
+</html>

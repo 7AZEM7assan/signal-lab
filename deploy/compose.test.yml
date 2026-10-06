@@ -1,0 +1,58 @@
+# Disposable stack for automated tests (make test-integration / make test-sil).
+# Separate project name, a throwaway database volume, and a loopback-only
+# Postgres port so Go integration tests can reach it. The app gets an ephemeral
+# host port; the test harness discovers it with `docker compose port`.
+# Tuning knobs are passed through from the environment so SIL tests can restart
+# the app with small queues, artificial worker delay, etc.
+name: signallab-test
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: signallab
+      POSTGRES_PASSWORD: signallab
+      POSTGRES_DB: signallab_test
+    volumes:
+      - pgdata:/var/lib/postgresql/data   # survives `stop`/`start` (outage tests); removed by `down -v`
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U signallab -d signallab_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      SIGNALLAB_DATABASE_URL: postgres://signallab:signallab@postgres:5432/signallab_test?sslmode=disable
+      SIGNALLAB_AUTO_MIGRATE: "true"
+      SIGNALLAB_LOG_FORMAT: json
+      SIGNALLAB_QUEUE_CAPACITY: ${SIGNALLAB_QUEUE_CAPACITY:-1000}
+      SIGNALLAB_MAX_BATCH_EVENTS: ${SIGNALLAB_MAX_BATCH_EVENTS:-500}
+      SIGNALLAB_WORKERS: ${SIGNALLAB_WORKERS:-4}
+      SIGNALLAB_WORKER_BATCH_SIZE: ${SIGNALLAB_WORKER_BATCH_SIZE:-100}
+      SIGNALLAB_LAB_WORKER_DELAY: ${SIGNALLAB_LAB_WORKER_DELAY:-0s}
+      SIGNALLAB_WS_CLIENT_BUFFER: ${SIGNALLAB_WS_CLIENT_BUFFER:-1024}
+      SIGNALLAB_WS_WRITE_TIMEOUT: ${SIGNALLAB_WS_WRITE_TIMEOUT:-5s}
+      SIGNALLAB_PERSIST_ATTEMPTS: ${SIGNALLAB_PERSIST_ATTEMPTS:-10}
+      SIGNALLAB_PERSIST_BACKOFF: ${SIGNALLAB_PERSIST_BACKOFF:-200ms}
+      SIGNALLAB_DB_QUERY_TIMEOUT: ${SIGNALLAB_DB_QUERY_TIMEOUT:-5s}
+      SIGNALLAB_SHUTDOWN_TIMEOUT: ${SIGNALLAB_SHUTDOWN_TIMEOUT:-15s}
+    ports:
+      - "127.0.0.1::8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/signallab", "healthcheck"]
+      interval: 2s
+      timeout: 4s
+      retries: 30
+      start_period: 2s
+
+volumes:
+  pgdata:
