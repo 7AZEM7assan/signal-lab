@@ -1,0 +1,208 @@
+openapi: 3.0.3
+info:
+  title: Signal Lab telemetry service
+  version: 0.1.0
+  description: |
+    HTTP API of the Signal Lab simulated telemetry replay and validation lab.
+    "Accepted" means validated and placed on a bounded in-memory queue; it does not
+    mean persisted. See the README, "Delivery semantics".
+servers:
+  - url: http://localhost:8088
+    description: Local stack via NGINX
+paths:
+  /healthz:
+    get:
+      summary: Liveness (process is up; does not check the database)
+      responses:
+        "200": { description: "Alive, content: { application/json: { schema: { $ref: \"#/components/schemas/Status\" } } }" }
+  /readyz:
+    get:
+      summary: Readiness (database reachable and service not draining)
+      responses:
+        "200": { description: "Ready, content: { application/json: { schema: { $ref: \"#/components/schemas/Readiness\" } } }" }
+        "503": { description: "Not ready, content: { application/json: { schema: { $ref: \"#/components/schemas/Readiness\" } } }" }
+  /api/v1/events:
+    post:
+      summary: Ingest a batch of events
+      description: |
+        Every record is validated. Valid records are enqueued all-or-nothing: if they do
+        not all fit in the queue, none are accepted and the response is 429 with
+        `Retry-After`; resend the batch. Invalid records are reported by index and are not
+        retryable. Duplicates inside one request are rejected; duplicates across requests
+        are acknowledged and then skipped by the database.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/IngestRequest" }
+      responses:
+        "202": { description: "Valid records queued, content: { application/json: { schema: { $ref: \"#/components/schemas/IngestResponse\" } } }" }
+        "400": { description: "Body is not a JSON object with a non-empty `events` array, content: { application/json: { schema: { $ref: \"#/components/schemas/Error\" } } }" }
+        "413": { description: "Body or batch too large, content: { application/json: { schema: { $ref: \"#/components/schemas/Error\" } } }" }
+        "429":
+          description: Queue full; nothing from this batch was accepted
+          headers: { Retry-After: { schema: { type: integer }, description: Seconds } }
+          content: { application/json: { schema: { $ref: "#/components/schemas/IngestResponse" } } }
+        "503":
+          description: Service is draining for shutdown
+          headers: { Retry-After: { schema: { type: integer } } }
+          content: { application/json: { schema: { $ref: "#/components/schemas/IngestResponse" } } }
+    get:
+      summary: Query stored events
+      parameters:
+        - { $ref: "#/components/parameters/DeviceId" }
+        - { $ref: "#/components/parameters/From" }
+        - { $ref: "#/components/parameters/To" }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+      responses:
+        "200": { description: "A page of events ordered by (event_time, event_id), content: { application/json: { schema: { $ref: \"#/components/schemas/EventsPage\" } } }" }
+        "400": { description: "Invalid parameter, content: { application/json: { schema: { $ref: \"#/components/schemas/Error\" } } }" }
+        "503": { description: "Database unavailable, content: { application/json: { schema: { $ref: \"#/components/schemas/Error\" } } }" }
+  /api/v1/alerts:
+    get:
+      summary: Query stored alerts
+      parameters:
+        - { $ref: "#/components/parameters/DeviceId" }
+        - { $ref: "#/components/parameters/From" }
+        - { $ref: "#/components/parameters/To" }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+      responses:
+        "200": { description: "A page of alerts ordered by (event_time, alert_id), content: { application/json: { schema: { $ref: \"#/components/schemas/AlertsPage\" } } }" }
+        "400": { description: "Invalid parameter, content: { application/json: { schema: { $ref: \"#/components/schemas/Error\" } } }" }
+        "503": { description: "Database unavailable, content: { application/json: { schema: { $ref: \"#/components/schemas/Error\" } } }" }
+  /metrics:
+    get:
+      summary: Prometheus exposition format
+      responses:
+        "200": { description: "Metrics, content: { text/plain: { schema: { type: string } } }" }
+  /ws:
+    get:
+      summary: Live event and alert stream (WebSocket upgrade)
+      description: |
+        Text frames, each `{"type": "hello"|"event"|"alert", "data": {...}}`. `hello` is sent
+        once the subscription is registered. Frames are live-only (no replay). A client whose
+        buffer fills, or whose writes time out, is disconnected (close code 1008).
+        Cross-origin browser connections are refused unless the origin is allowed by
+        `SIGNALLAB_WS_ALLOWED_ORIGINS`.
+      parameters:
+        - { $ref: "#/components/parameters/DeviceId" }
+      responses:
+        "101": { description: "Switching protocols" }
+        "400": { description: "Invalid device_id" }
+        "503": { description: "Client limit reached or shutting down" }
+components:
+  parameters:
+    DeviceId:
+      name: device_id
+      in: query
+      required: false
+      schema: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$" }
+    From:
+      name: from
+      in: query
+      required: true
+      description: Inclusive lower bound on event_time (RFC 3339).
+      schema: { type: string, format: date-time }
+    To:
+      name: to
+      in: query
+      required: true
+      description: Exclusive upper bound on event_time (RFC 3339). `to - from` must not exceed the configured maximum range (default 24h).
+      schema: { type: string, format: date-time }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque `next_cursor` from the previous page.
+      schema: { type: string }
+  schemas:
+    Status:
+      type: object
+      properties: { status: { type: string } }
+    Readiness:
+      type: object
+      properties:
+        status: { type: string, enum: [ready, not_ready] }
+        checks:
+          type: object
+          properties:
+            database: { type: string, enum: [ok, unavailable] }
+            draining: { type: string, enum: ["yes", "no"] }
+    EventRecord:
+      type: object
+      description: Telemetry record, schema version 1. Unknown fields (including `received_at`) are rejected.
+      required: [schema_version, event_id, device_id, event_time, temperature_c, vibration_mm_s]
+      properties:
+        schema_version: { type: integer, enum: [1] }
+        event_id: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$", description: Globally unique; the idempotency key. }
+        device_id: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$" }
+        event_time: { type: string, format: date-time, description: "Source timestamp. Normalised to UTC, microsecond precision." }
+        sequence: { type: integer, format: int64, minimum: 0, description: "Optional per-device counter; (device_id, sequence) must be unique." }
+        temperature_c: { type: number, description: "Degrees Celsius; finite, default bounds [-50, 250]." }
+        vibration_mm_s: { type: number, description: "RMS velocity in mm/s; finite, default bounds [0, 100]." }
+        site_id: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$" }
+    IngestRequest:
+      type: object
+      required: [events]
+      properties:
+        events: { type: array, minItems: 1, maxItems: 500, items: { $ref: "#/components/schemas/EventRecord" } }
+    IngestResponse:
+      type: object
+      properties:
+        batch_id: { type: string, description: "Equals the X-Request-ID response header; appears in service logs." }
+        received: { type: integer }
+        accepted: { type: integer, description: "Records placed on the in-memory queue (not necessarily stored)." }
+        rejected: { type: integer, description: "Records that failed validation." }
+        rejections:
+          type: array
+          description: At most 50 entries; `rejections_truncated` is set if more exist.
+          items:
+            type: object
+            properties:
+              index: { type: integer }
+              reason: { type: string, enum: [malformed_json, unknown_field, unsupported_schema_version, missing_field, invalid_event_id, invalid_device_id, invalid_site_id, invalid_timestamp, time_in_future, invalid_sequence, out_of_range, duplicate_in_batch] }
+              detail: { type: string, description: "Fixed text; never echoes payload content." }
+        rejection_counts: { type: object, additionalProperties: { type: integer } }
+        rejections_truncated: { type: boolean }
+        queue:
+          type: object
+          properties: { depth: { type: integer }, capacity: { type: integer } }
+        error: { $ref: "#/components/schemas/ErrorBody" }
+    EventsPage:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/EventRecord"
+              - type: object
+                properties: { received_at: { type: string, format: date-time, description: "Server-assigned." } }
+        next_cursor: { type: string, description: "Present when more rows exist." }
+    Alert:
+      type: object
+      properties:
+        alert_id: { type: string, description: "`<event_id>:<rule>`; one per event and rule." }
+        device_id: { type: string }
+        event_id: { type: string }
+        rule: { type: string, enum: [temperature_high, vibration_high] }
+        threshold: { type: number }
+        observed: { type: number }
+        event_time: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+    AlertsPage:
+      type: object
+      properties:
+        alerts: { type: array, items: { $ref: "#/components/schemas/Alert" } }
+        next_cursor: { type: string }
+    ErrorBody:
+      type: object
+      properties: { code: { type: string }, message: { type: string } }
+    Error:
+      type: object
+      properties: { error: { $ref: "#/components/schemas/ErrorBody" } }

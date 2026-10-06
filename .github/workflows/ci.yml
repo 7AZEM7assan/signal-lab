@@ -1,0 +1,71 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go (format, vet, race tests with PostgreSQL)
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: signallab
+          POSTGRES_PASSWORD: signallab
+          POSTGRES_DB: signallab_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U signallab -d signallab_test"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      SIGNALLAB_TEST_DATABASE_URL: postgres://signallab:signallab@localhost:5432/signallab_test?sslmode=disable
+      SIGNALLAB_REQUIRE_DB: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: gofmt
+        run: test -z "$(gofmt -l cmd internal)" || (gofmt -l cmd internal; exit 1)
+      - run: go vet ./...
+      - run: go build ./...
+      - name: Tests (race detector, includes database integration tests)
+        run: go test -race -count=1 ./...
+
+  python:
+    name: Python (ruff, unit tests)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -e "sim[dev]"
+      - run: cd sim && ruff check . && ruff format --check .
+      - run: cd sim && python -m pytest -m "not sil" -q
+
+  sil:
+    name: SIL (service + PostgreSQL via Docker Compose)
+    runs-on: ubuntu-24.04
+    needs: [go, python]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -e "sim[dev]"
+      - run: cd sim && python -m pytest -m sil -v
+
+  docker:
+    name: Container build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t signallab:ci .

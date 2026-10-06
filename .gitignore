@@ -1,0 +1,18 @@
+# local configuration (never commit secrets)
+.env
+
+# generated data and tooling output
+data/load.jsonl
+data/*.tmp.jsonl
+bin/
+coverage.out
+*.test
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+venv/

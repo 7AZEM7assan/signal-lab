@@ -1,0 +1,54 @@
+{
+  "description": "Expected outcome of replaying data/sample.jsonl with default thresholds (85.0 C, 7.1 mm/s; inclusive).",
+  "events": 30,
+  "alerts": [
+    {
+      "alert_id": "pump-02-000004:vibration_high",
+      "device_id": "pump-02",
+      "event_id": "pump-02-000004",
+      "rule": "vibration_high",
+      "threshold": 7.1,
+      "observed": 7.1
+    },
+    {
+      "alert_id": "press-01-000006:temperature_high",
+      "device_id": "press-01",
+      "event_id": "press-01-000006",
+      "rule": "temperature_high",
+      "threshold": 85.0,
+      "observed": 85.0
+    },
+    {
+      "alert_id": "press-01-000007:temperature_high",
+      "device_id": "press-01",
+      "event_id": "press-01-000007",
+      "rule": "temperature_high",
+      "threshold": 85.0,
+      "observed": 91.2
+    },
+    {
+      "alert_id": "pump-02-000008:vibration_high",
+      "device_id": "pump-02",
+      "event_id": "pump-02-000008",
+      "rule": "vibration_high",
+      "threshold": 7.1,
+      "observed": 9.4
+    },
+    {
+      "alert_id": "mill-03-000009:temperature_high",
+      "device_id": "mill-03",
+      "event_id": "mill-03-000009",
+      "rule": "temperature_high",
+      "threshold": 85.0,
+      "observed": 88.0
+    },
+    {
+      "alert_id": "mill-03-000009:vibration_high",
+      "device_id": "mill-03",
+      "event_id": "mill-03-000009",
+      "rule": "vibration_high",
+      "threshold": 7.1,
+      "observed": 8.0
+    }
+  ]
+}
