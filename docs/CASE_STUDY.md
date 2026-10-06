@@ -43,9 +43,14 @@ Key decisions, each documented in the README:
 
 ## Measured results
 
-**None are recorded.** The repository defines a reproducible load exercise (`make load`: a seeded 50,000-event dataset replayed with 8 connections in batches of 100) and says what to capture (throughput, p50/p95/p99 request latency, 429 and error counts, plus CPU, RAM, OS, Docker/Go/Python versions, commit, parameters and several runs). Until someone runs it and records the environment, this section intentionally contains no numbers, and any numbers recorded later should be described as local results, not compared with other systems.
+Recorded in [`BENCHMARKS.md`](BENCHMARKS.md), with the environment, exact command, method and raw outputs. They are **local results from one machine (a 4 vCPU sandbox VM running the client, NGINX, the service and PostgreSQL together), three runs per configuration**, and should not be compared with other systems.
 
-The same applies to test outcomes: the test suites are written and documented, and their output is not pasted anywhere in the repository.
+- **Documented command (`make load`, queue capacity 1000):** all 50,000 seeded events were accepted in every run with no request errors and no lost accepted events (50,000 stored, 3,000 alerts). The run took 9.4 s, 27.9 s and 13.5 s. That spread is the backpressure policy at work: 71 to 215 batches were refused with 429 and each retry waited the 1 s `Retry-After`. Request latency was p50 4–9 ms, p99 26–43 ms. A persist transaction took about 15 ms for roughly 88 events.
+- **Supplementary (queue capacity 10,000, nothing else changed):** about 3.7 s per run (~13,000 records/s attempted, ~11,400 events/s counting the drain after the replay), still with 24 refused-then-retried batches per run, and a queue wait of about 0.2 s.
+
+What this supports: the bounded queue, the all-or-nothing 429 contract and the idempotent pipeline behave as documented under a burst. What it does not support: a maximum-throughput or capacity claim (the client and stack share four CPUs and retry sleeps dominate the default runs).
+
+Test outcomes are not pasted into the repository; run the suites to see them.
 
 ## What remains simulated, and what was not tested
 

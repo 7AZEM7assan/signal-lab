@@ -1,0 +1,13 @@
+PYTHONPATH=sim python3 -m signallab_sim generate --out data/load.jsonl --seed 1 --devices 20 --duration 2500 --interval 1
+wrote 50000 events to data/load.jsonl (seed=1, devices=20)
+PYTHONPATH=sim python3 -m signallab_sim replay data/load.jsonl --url http://localhost:8088 --batch-size 100 --concurrency 8 --retries 5
+target            http://localhost:8088
+seed              0
+attempted         50000 records in 500 batches
+accepted          50000  (queued by the service; not a durability guarantee)
+rejected          0
+overloaded        0 records (215 x 429, 215 retries)
+request errors    0 (0 records)
+elapsed           27.91 s (1791.4 records/s attempted)
+latency (ms)      p50=8.883 p95=20.979 p99=27.363 max=35.194  over 715 requests
+injected faults   {'malformed': 0, 'duplicates': 0, 'late': 0}
