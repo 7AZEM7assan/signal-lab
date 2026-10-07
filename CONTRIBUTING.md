@@ -21,6 +21,11 @@ pip install -e "sim[dev]"     # pytest, websockets, ruff
 make install-hooks            # optional: run `make ci-fast` before every push
 ```
 
+The desktop app (`desktop/`) additionally needs Node.js 22+: `make desktop-dev` runs it from source
+and `make desktop-smoke` is its end-to-end test (`xvfb-run -a make desktop-smoke` on headless Linux).
+Changes to `internal/appctl`, `internal/lab`, `internal/sqlitestore` or the panel in `internal/appui`
+should keep `make ci-fast` green and, when they touch what the window shows, pass the smoke test.
+
 ## Checking your change
 
 ```bash

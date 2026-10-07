@@ -3,6 +3,8 @@
 //	signallab [serve]      run the service (default)
 //	signallab migrate      apply database migrations and exit
 //	signallab healthcheck  GET /readyz on localhost; exit 0 if ready (used by Docker)
+//	signallab app          run the self-contained local app (embedded SQLite, control panel)
+//	signallab version      print the version
 package main
 
 import (
@@ -28,10 +30,25 @@ import (
 	"signallab/internal/store"
 )
 
+// version is set at build time: go build -ldflags "-X main.version=1.2.3".
+var version = "dev"
+
 func main() {
 	cmd := "serve"
 	if len(os.Args) > 1 {
 		cmd = os.Args[1]
+	}
+	// These commands do not use the PostgreSQL service's environment configuration.
+	switch cmd {
+	case "version", "--version", "-v":
+		fmt.Println(version)
+		return
+	case "app":
+		if err := runApp(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "signallab app: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 	cfg, err := config.OS()
 	if err != nil {
@@ -48,7 +65,7 @@ func main() {
 	case "healthcheck":
 		err = healthcheck(cfg)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q (use serve, migrate or healthcheck)\n", cmd)
+		fmt.Fprintf(os.Stderr, "unknown command %q (use serve, migrate, healthcheck, app or version)\n", cmd)
 		os.Exit(2)
 	}
 	if err != nil {
