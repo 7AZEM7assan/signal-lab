@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Signal Lab monitor</title>
+<link rel="icon" href="data:,">
 <style>
   :root { --bg:#f6f7f9; --card:#fff; --fg:#1b1f24; --muted:#657080; --line:#dde1e7; --ok:#1a7f4b; --warn:#b26a00; --bad:#c0362c; }
   @media (prefers-color-scheme: dark) {
@@ -13,10 +14,13 @@
   body { margin:0; padding:16px; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui, sans-serif; }
   h1 { font-size:18px; margin:0 0 2px; }
   .sub { color:var(--muted); margin:0 0 14px; }
-  .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); }
+  .grid { display:grid; gap:12px; grid-template-columns:1fr; }
+  @media (min-width: 760px) { .grid { grid-template-columns:1fr 1fr; } }
   .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px; }
   .card h2 { font-size:13px; margin:0 0 8px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
   .row { display:flex; justify-content:space-between; gap:8px; padding:2px 0; }
+  .row span:first-child { min-width:0; }
+  .row b { white-space:nowrap; }
   .pill { padding:1px 8px; border-radius:99px; border:1px solid currentColor; font-size:12px; }
   .ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); }
   table { width:100%; border-collapse:collapse; }
@@ -27,6 +31,11 @@
   .meter { height:8px; background:var(--line); border-radius:4px; overflow:hidden; margin:4px 0 8px; }
   .meter > div { height:100%; width:0; background:var(--ok); transition:width .3s; }
   .wide { grid-column:1 / -1; }
+  th.num, td.num { text-align:right; }
+  td.nowrap { white-space:nowrap; }
+  td.hit { color:var(--bad); font-weight:600; }
+  .empty { color:var(--muted); border-bottom:0; }
+  .scroll-x { overflow-x:auto; }
   footer { color:var(--muted); margin-top:14px; font-size:12px; }
 </style>
 </head>
@@ -51,20 +60,20 @@
     <div class="row"><span>Rejected: invalid</span><b id="mInvalid">–</b></div>
     <div class="row"><span>Rejected: overload (429)</span><b id="mOverload">–</b></div>
     <div class="row"><span>Stored / duplicate / failed</span><b id="mProcessed">–</b></div>
-    <div class="row"><span>WebSocket clients / slow disconnects</span><b id="mWs">–</b></div>
+    <div class="row"><span>WS clients / slow disconnects</span><b id="mWs">–</b></div>
   </section>
 
   <section class="card wide">
     <h2>Latest reading per device</h2>
-    <table>
-      <thead><tr><th>Device</th><th>Event time (UTC)</th><th>Temp °C</th><th>Vibration mm/s</th></tr></thead>
+    <div class="scroll-x"><table>
+      <thead><tr><th>Device</th><th>Time (UTC)</th><th class="num">Temp °C</th><th class="num">Vibration mm/s</th></tr></thead>
       <tbody id="devices"><tr><td colspan="4" class="sub">Waiting for events… run <code>make replay-sample</code>.</td></tr></tbody>
-    </table>
+    </table></div>
   </section>
 
   <section class="card wide">
     <h2>Alert feed</h2>
-    <ul id="alerts"></ul>
+    <ul id="alerts"><li class="empty" id="noAlerts">No alerts yet.</li></ul>
   </section>
 </div>
 <footer>Live messages are best-effort and not replayed after a disconnect; query <code>/api/v1/events</code> to catch up.</footer>
@@ -72,6 +81,10 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const latest = new Map();
+// event_id -> Set of rules that fired, so the reading that triggered an alert can be highlighted.
+// Bounded: Map keeps insertion order, so the oldest entries are dropped first.
+const fired = new Map();
+const MAX_FIRED = 5000;
 let nEvents = 0, nAlerts = 0, retry = 1000;
 
 function setPill(el, text, cls) { el.textContent = text; el.className = "pill " + cls; }
@@ -79,16 +92,28 @@ function setPill(el, text, cls) { el.textContent = text; el.className = "pill " 
 function renderDevices() {
   const body = $("devices");
   body.replaceChildren();
-  for (const [id, e] of [...latest].sort()) {
+  for (const [id, e] of [...latest].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const rules = fired.get(e.event_id);
+    const cells = [
+      [id, "nowrap"], [e.event_time.slice(11, 19), "nowrap"],
+      [e.temperature_c.toFixed(2), "num" + (rules?.has("temperature_high") ? " hit" : "")],
+      [e.vibration_mm_s.toFixed(2), "num" + (rules?.has("vibration_high") ? " hit" : "")],
+    ];
     const tr = document.createElement("tr");
-    for (const v of [id, e.event_time, e.temperature_c.toFixed(2), e.vibration_mm_s.toFixed(2)]) {
-      const td = document.createElement("td"); td.textContent = v; tr.appendChild(td);
+    for (const [text, cls] of cells) {
+      const td = document.createElement("td"); td.textContent = text; td.className = cls; tr.appendChild(td);
+      if (cls.includes("nowrap") && text.length === 8) td.title = e.event_time; // full timestamp on hover
     }
     body.appendChild(tr);
   }
 }
 
 function addAlert(a) {
+  $("noAlerts")?.remove();
+  if (!fired.has(a.event_id)) fired.set(a.event_id, new Set());
+  fired.get(a.event_id).add(a.rule);
+  if (fired.size > MAX_FIRED) fired.delete(fired.keys().next().value);
+  if (latest.get(a.device_id)?.event_id === a.event_id) renderDevices();
   const li = document.createElement("li");
   li.className = "bad";
   li.textContent = `${a.event_time}  ${a.device_id}  ${a.rule}  observed ${a.observed} (threshold ${a.threshold})`;

@@ -1,5 +1,7 @@
 # Signal Lab
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A **simulated telemetry replay and validation lab**. It replays recorded (simulated) factory sensor data through a Go telemetry service, injects controllable faults, shows accepted events and alerts on a live WebSocket feed, exposes health and Prometheus metrics, and validates the behaviour with automated Python tests.
 
 It is a focused educational/reference project for backend and systems engineering topics: Go concurrency, bounded queues and backpressure, streaming APIs, persistence, observability, reproducible replay, and automated validation.
@@ -16,7 +18,9 @@ Non-goals (kept out on purpose): Kubernetes, authentication and multi-tenancy, c
 
 ## Quick start
 
-Prerequisites: Docker with the Compose plugin, Python 3.11+, GNU make. (Go 1.25 is only needed to run Go tests or build outside Docker.)
+Signal Lab runs on your own machine; there is nothing to sign up for or deploy. Prerequisites: Docker with the Compose plugin, Python 3.11+, GNU make. (Go 1.25 is only needed to run Go tests or build outside Docker.)
+
+**Disk space.** The source is about 2 MB (a full `git clone` about 5 MB). Running the stack pulls about 1 GB of container images (PostgreSQL 424 MB, Prometheus 440 MB, NGINX 93 MB, the service image 25 MB), plus the 329 MB Go build image and some build cache the first time you build. Python needs no extra packages to run the simulator; tests need `pytest` and `websockets`.
 
 ```bash
 make up              # build and start app, postgres, nginx, prometheus
@@ -34,6 +38,31 @@ Then open:
 | <http://localhost:9090/> | Prometheus UI |
 
 Open the monitor first, then run `make replay-sample` to watch events and alerts arrive. Without a browser: `python -m websockets ws://localhost:8088/ws` (from `pip install websockets`).
+
+### The monitor page
+
+A deliberately small, dependency-free page (`web/index.html`), served by NGINX. It shows the WebSocket and readiness state, queue and ingestion health (read from `/metrics`), the latest reading per device, and a live alert feed. A reading that triggered an alert is shown in red. It is a monitoring client, not the product.
+
+![Monitor page, light theme](docs/screenshots/monitor-desktop-light.png)
+
+<details>
+<summary>Dark theme and phone width</summary>
+
+![Monitor page, dark theme](docs/screenshots/monitor-desktop-dark.png)
+
+![Monitor page at phone width](docs/screenshots/monitor-mobile.png)
+
+</details>
+
+Captured from a seeded replay (seed 11, 5 devices, 200 events) with [`sim/tools/capture_screenshots.py`](sim/tools/capture_screenshots.py), an optional developer tool that needs Playwright. The same script fails if the page logs console errors or overflows horizontally, so it doubles as a smoke test of the page.
+
+### The recorded demo (no Docker needed)
+
+[`demo/index.html`](demo/index.html) is the same monitor, but it plays back a recording instead of connecting to the service, so you can see the project working without installing anything: serve the folder (`python3 -m http.server 8000`) and open <http://localhost:8000/demo/>. It also works on any static host; to publish it from your fork, enable GitHub Pages for the repository and open `/demo/`. A banner on the page says it is a recording. It has play/pause, speed and a scrubber.
+
+![Demo page paused mid-replay](docs/screenshots/demo-desktop.png)
+
+[`demo/recording.json`](demo/recording.json) was captured from the real stack by [`sim/tools/record_demo.py`](sim/tools/record_demo.py): the Python replay tool (seed 11, 8 devices, 480 records, seeded malformed, duplicate and late faults) drove the Go service and PostgreSQL while the script logged the WebSocket feed and polled `/metrics`. The service was started with a small queue (150) and a deliberately slow worker (`SIGNALLAB_LAB_WORKER_DELAY=250ms`, one worker taking 10 events per batch) so the queue fills and the 429 path is visible; the page says so. To re-record, start a fresh service with empty tables and run `python sim/tools/record_demo.py --url http://localhost:8088 --out demo/recording.json`. Opening `demo/index.html` directly from disk does not work, because browsers block `fetch` on `file://`; serve the folder as shown above.
 
 Stop with `make down`. Delete the local database with `make reset`. Run `make help` for every target.
 
@@ -342,10 +371,27 @@ The SIL test `test_sil_faults.py` asserts exactly this policy, deriving the expe
 | Unit (Python) | generator determinism, seeded fault planning, pacing schedules, replayer against a stub server | `make test-py` | Python |
 | SIL | the real service image and PostgreSQL in Docker Compose: replay the deterministic dataset and verify persisted events and alerts, seeded faults, overload/backpressure, live WebSocket delivery, a stuck client, database outage and recovery, SIGTERM drain | `make test-sil` | Docker |
 | Everything | lint + all of the above | `make test-all` | all |
+| Local CI | every stage the CI workflow runs, with a pass/fail summary | `make ci` (or `make ci-fast` without Docker) | Docker (full run) |
 
 Python test dependencies: `pip install -e "sim[dev]"` (pytest, websockets, ruff). SIL and integration tests use a separate compose project (`signallab-test`) with its own volume, so they never touch local development data; the Go integration tests create and drop a uniquely named schema per test, so they do not depend on pre-existing database contents either. In CI, `SIGNALLAB_REQUIRE_DB=1` turns a missing database into a failure instead of a skip.
 
-The CI workflow (`../.github/workflows/signal-lab.yml`) runs gofmt, `go vet`, Go tests with `-race` against a PostgreSQL service, ruff, Python unit tests, the SIL suite, and a container build.
+The CI workflow (`.github/workflows/ci.yml`) runs gofmt, `go vet`, Go tests with `-race` against a PostgreSQL service, ruff, Python unit tests, the SIL suite, and a container build.
+
+### Running CI locally
+
+`make ci` runs the same stages as the CI workflow on your own machine and prints a summary, so you do not need a hosted runner to know whether a change is good:
+
+```text
+gofmt  ->  go vet  ->  go build  ->  go test -race (throwaway PostgreSQL)  ->  ruff  ->  pytest (unit)  ->  container build  ->  SIL suite
+```
+
+- `make ci-fast` (or `scripts/ci.sh --fast`) skips everything that needs Docker: it runs lint, build, the Go unit tests (the database integration tests are skipped), ruff and the Python unit tests.
+- `scripts/ci.sh --no-sil` is the full run without the slowest stage.
+- Exit status is non-zero if any stage fails. A missing tool (for example ruff or pytest: `pip install -e "sim[dev]"`, or point `PYTHON` at an interpreter that has them) is reported as a failure with an install hint, never as a silent skip; only stages you turn off yourself are shown as SKIPPED.
+- `CI_DOCKER_BUILD_ARGS` passes extra arguments to `docker build` (for example `--network host` in a restricted network).
+- Opt-in pre-push hook: `make install-hooks` makes `git push` run `make ci-fast` first before each push. Skip once with `SKIP_CI=1 git push` or `--no-verify`. The hook uses `core.hooksPath`, which replaces any other hooks you have configured for the repository.
+
+This is a local check: it proves the code on the machine where you run it and does not put a status on a pull request.
 
 **What these tests do not cover.** The slow-WebSocket-client policy is verified deterministically at the hub level (unit tests). The SIL test shows a stuck TCP client does not stall ingestion or other clients, but it cannot force kernel socket buffers to fill on demand, so it does not assert the disconnect itself. Database outage is simulated by stopping the Postgres container. There is no long-running soak, no multi-instance test, and no TLS.
 
@@ -389,7 +435,7 @@ If you record numbers, record them as local results with the environment: CPU mo
 - `/metrics` and `/readyz` are proxied by NGINX for convenience (the monitor page reads them). In any shared deployment, keep metrics on an internal network.
 - The container runs as a non-root user on a distroless image. pprof is off by default.
 - Inputs are size-limited, validated, parameterised in SQL, and never echoed back in error details or logs. WebSocket origin checks are on by default.
-- This repository is a GitHub Pages site; Pages would serve these files statically, but the service itself only runs locally.
+- The service is meant to run locally. Only the recorded `demo/` page is safe to host publicly, because it contains no server.
 
 ## Dependency choices
 
@@ -434,10 +480,18 @@ internal/metrics/       Prometheus instruments
 internal/testdb/        isolated-schema helper for integration tests
 internal/e2e/           ingest -> DB -> HTTP -> WebSocket integration tests
 sim/                    Python simulator, replayer, fault injector, pytest suites (unit + SIL)
+sim/tools/              optional developer tools (screenshot capture, demo recorder)
+scripts/                ci.sh (local CI) and the opt-in pre-push hook
 data/                   sample dataset and its expected alerts
 deploy/                 nginx, prometheus, and the disposable test compose file
-web/                    the small monitor page
+web/                    the small monitor page (screenshots in docs/screenshots/)
+demo/                   static, recorded-replay version of the monitor (no backend)
 docs/                   OpenAPI definition and the portfolio case study
+LICENSE, CONTRIBUTING.md, SECURITY.md, .github/   license, contribution and security policy, CI workflow, issue and PR templates
 ```
 
 See also: [`docs/CASE_STUDY.md`](docs/CASE_STUDY.md).
+
+## License and contributing
+
+MIT licensed: see [`LICENSE`](LICENSE). Contributions are welcome; read [`CONTRIBUTING.md`](CONTRIBUTING.md) first (run `make ci` before opening a pull request). To report a security problem, see [`SECURITY.md`](SECURITY.md).

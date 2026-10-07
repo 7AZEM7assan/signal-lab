@@ -5,7 +5,7 @@ code behaved in this environment on this date. They are not a performance claim,
 rating, and not comparable to any other system. Latencies are HTTP request latencies (the
 acknowledgement), not time-to-persist.
 
-Date: 2026-10-06. Code: commit `28a2b83` (the `signal-lab/` tree at the time of the run).
+Date: 2026-10-06. Code: commit `28a2b83` of the repository this project was developed in before it moved to its own repository, so that hash does not exist here. The service code (`cmd/`, `internal/`, the Dockerfile, Compose files and the Python simulator) is byte-for-byte unchanged since then; only the monitor page, CI scripts, demo and docs changed.
 
 ## Environment
 
