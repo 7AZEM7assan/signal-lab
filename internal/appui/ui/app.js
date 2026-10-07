@@ -356,8 +356,10 @@ $("btnDefaults").addEventListener("click", async () => {
 async function refreshState() {
   let s;
   try { s = await api("GET", "/app/api/state"); } catch { return; }
-  $("version").textContent = s.version ? "v" + s.version.replace(/^v/, "") : "";
-  $("aboutVersion").textContent = s.version ? `Version ${s.version}.` : "";
+  // Releases carry a number (0.2.0); a build from source reports "dev", which reads better spelled out.
+  const release = /^v?\d/.test(s.version || "");
+  $("version").textContent = release ? "v" + s.version.replace(/^v/, "") : s.version ? "development build" : "";
+  $("aboutVersion").textContent = release ? `Version ${s.version.replace(/^v/, "")}.` : "This is a development build (built from source).";
   const st = s.storage;
   $("sEvents").textContent = fmtInt(st.events); $("sAlerts").textContent = fmtInt(st.alerts); $("sDevices").textContent = fmtInt(st.devices);
   $("sOldest").textContent = fmtTime(st.oldest_event_time); $("sNewest").textContent = fmtTime(st.newest_event_time);
