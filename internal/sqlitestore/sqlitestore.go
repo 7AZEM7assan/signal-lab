@@ -13,7 +13,6 @@ package sqlitestore
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -300,7 +299,7 @@ type Stats struct {
 	Path       string     `json:"path"`
 }
 
-// Stats counts rows and reports the on-disk size (database file plus its write-ahead log).
+// Stats counts rows and reports the database size.
 func (s *Store) Stats(ctx context.Context) (Stats, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
@@ -322,12 +321,11 @@ func (s *Store) Stats(ctx context.Context) (Stats, error) {
 		t := fromMicro(newest.Int64)
 		st.NewestTime = &t
 	}
-	for _, p := range []string{s.path, s.path + "-wal"} {
-		if fi, err := os.Stat(p); err == nil {
-			st.DBBytes += fi.Size()
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return Stats{}, err
-		}
+	// The database's logical size (pages in use by the database, wherever they currently live).
+	// Measuring the files instead would count the write-ahead log, which holds a copy of recent
+	// writes until a checkpoint and makes a small database look several times larger.
+	if err := s.db.QueryRowContext(ctx, `SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()`).Scan(&st.DBBytes); err != nil {
+		return Stats{}, err
 	}
 	return st, nil
 }

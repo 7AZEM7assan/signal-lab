@@ -186,3 +186,36 @@ func TestDataSurvivesReopen(t *testing.T) {
 		t.Fatalf("after reopen: %+v", st)
 	}
 }
+
+func TestReportedSizeDoesNotIncludeTheWriteAheadLog(t *testing.T) {
+	s, ctx := open(t), context.Background()
+	for b := int64(0); b < 20; b++ { // many small commits leave a large write-ahead log behind
+		var batch []event.Event
+		for i := int64(0); i < 100; i++ {
+			batch = append(batch, ev("press-01", b*100+i+1, 60, 2, t0.Add(time.Duration(b*100+i)*time.Second)))
+		}
+		if _, err := s.PersistBatch(ctx, batch, th); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := s.Stats(ctx)
+	if err != nil || before.Events != 2000 || before.DBBytes == 0 || before.DBBytes%4096 != 0 {
+		t.Fatalf("stats before checkpoint: %+v err %v", before, err)
+	}
+	// Moving the log's contents into the main file must not change the reported size.
+	if _, err := s.db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		t.Fatal(err)
+	}
+	after, err := s.Stats(ctx)
+	if err != nil || after.DBBytes != before.DBBytes {
+		t.Fatalf("size changed from %d to %d bytes when the write-ahead log was checkpointed", before.DBBytes, after.DBBytes)
+	}
+	// Deleting everything and compacting makes it small again.
+	if _, _, err := s.Clear(ctx); err != nil {
+		t.Fatal(err)
+	}
+	cleared, _ := s.Stats(ctx)
+	if cleared.DBBytes >= before.DBBytes {
+		t.Fatalf("size after clear %d should be below %d", cleared.DBBytes, before.DBBytes)
+	}
+}
