@@ -25,6 +25,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"signallab/internal/alert"
@@ -68,6 +69,7 @@ type item struct {
 
 type Pipeline struct {
 	cfg   Config
+	th    atomic.Pointer[alert.Thresholds] // live-editable; starts as cfg.Thresholds
 	db    Persister
 	bc    Broadcaster
 	m     *metrics.Metrics
@@ -86,6 +88,8 @@ type Pipeline struct {
 func New(cfg Config, db Persister, bc Broadcaster, m *metrics.Metrics, log *slog.Logger) *Pipeline {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &Pipeline{cfg: cfg, db: db, bc: bc, m: m, log: log, queue: make(chan item, cfg.Capacity), ctx: ctx, cancel: cancel}
+	initial := cfg.Thresholds
+	p.th.Store(&initial)
 	m.Registry.MustRegister(
 		gaugeFunc("signallab_queue_depth", "Events currently waiting in the ingest queue.", func() float64 { return float64(len(p.queue)) }),
 		gaugeFunc("signallab_queue_capacity", "Configured ingest queue capacity.", func() float64 { return float64(cfg.Capacity) }),
@@ -98,6 +102,13 @@ func New(cfg Config, db Persister, bc Broadcaster, m *metrics.Metrics, log *slog
 }
 
 // Depth and Capacity expose queue state (for responses and tests).
+// SetThresholds changes the alert thresholds for batches persisted from now on. Events already
+// stored keep the alerts they were given.
+func (p *Pipeline) SetThresholds(th alert.Thresholds) { p.th.Store(&th) }
+
+// Thresholds returns the thresholds currently in effect.
+func (p *Pipeline) Thresholds() alert.Thresholds { return *p.th.Load() }
+
 func (p *Pipeline) Depth() int    { return len(p.queue) }
 func (p *Pipeline) Capacity() int { return cap(p.queue) }
 
@@ -227,7 +238,7 @@ func (p *Pipeline) persistWithRetry(evs []event.Event, batchID string) (store.Re
 	var lastErr error
 	for attempt := 1; attempt <= p.cfg.Attempts; attempt++ {
 		start := time.Now()
-		res, err := p.db.PersistBatch(p.ctx, evs, p.cfg.Thresholds)
+		res, err := p.db.PersistBatch(p.ctx, evs, *p.th.Load())
 		p.m.ProcessingDuration.Observe(time.Since(start).Seconds())
 		if err == nil {
 			return res, nil

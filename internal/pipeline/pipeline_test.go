@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -319,5 +320,43 @@ func TestBackoffDoublesAndIsCapped(t *testing.T) {
 	}
 	if got := backoffFor(base, 1000); got != maxBackoff {
 		t.Errorf("huge attempt numbers must not overflow: %v", got)
+	}
+}
+
+func TestThresholdsCanBeChangedWhileRunning(t *testing.T) {
+	db := &fakePersister{}
+	p, bc, _ := newPipe(t, Config{Capacity: 50}, db)
+	if got := p.Thresholds(); got.TemperatureC != 85 {
+		t.Fatalf("initial threshold %v", got)
+	}
+	// 90 C is above the initial 85 C threshold, so it alerts.
+	if err := p.Enqueue("b1", evs("hot1", 1, 90)); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, func() bool { return db.count() == 1 }, "first event stored")
+
+	// Raise the threshold: the same reading no longer alerts. Lower it again: it does.
+	p.SetThresholds(alert.Thresholds{TemperatureC: 95, VibrationMMS: 7.1})
+	if err := p.Enqueue("b2", evs("hot2", 1, 90)); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, func() bool { return db.count() == 2 }, "second event stored")
+	p.SetThresholds(alert.Thresholds{TemperatureC: 80, VibrationMMS: 7.1})
+	if err := p.Enqueue("b3", evs("hot3", 1, 90)); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, func() bool { return db.count() == 3 }, "third event stored")
+	closeOK(t, p)
+
+	alerts := 0
+	bc.mu.Lock()
+	for _, msg := range bc.msgs {
+		if strings.Contains(msg, `"type":"alert"`) {
+			alerts++
+		}
+	}
+	bc.mu.Unlock()
+	if alerts != 2 {
+		t.Fatalf("expected alerts for the first and third event only, got %d", alerts)
 	}
 }
