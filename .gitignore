@@ -16,3 +16,8 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+
+# desktop app build output
+desktop/node_modules/
+desktop/dist/
+desktop/resources/bin/

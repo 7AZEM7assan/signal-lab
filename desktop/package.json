@@ -1,0 +1,23 @@
+{
+  "name": "signal-lab-desktop",
+  "productName": "Signal Lab",
+  "version": "0.2.0",
+  "description": "Desktop app for Signal Lab: a local telemetry replay and validation lab",
+  "author": "7AZEM7assan",
+  "license": "MIT",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "node scripts/build-go.js --host && electron .",
+    "build:go": "node scripts/build-go.js",
+    "check": "node --check main.js && node --check preload.js && node --check scripts/build-go.js && node --check scripts/adhoc-sign.js && node --check scripts/gen-notices.js && node --check test/smoke.mjs && node --check test/screenshots.mjs",
+    "smoke": "node scripts/build-go.js --host && node test/smoke.mjs",
+    "dist": "node scripts/build-go.js --host && electron-builder",
+    "screenshots": "node scripts/build-go.js --host && node test/screenshots.mjs"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3",
+    "playwright-core": "1.64.0"
+  }
+}

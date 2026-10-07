@@ -13,7 +13,8 @@ LOAD_BATCH       ?= 100
 
 .DEFAULT_GOAL := help
 .PHONY: help up down reset logs migrate psql replay-sample replay-faults fmt lint build \
-        test test-go test-race test-integration test-py test-sil test-all load ci ci-fast install-hooks
+        test test-go test-race test-integration test-py test-sil test-all load ci ci-fast install-hooks \
+        app desktop-dev desktop-dist desktop-smoke
 
 help: ## list targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -90,3 +91,15 @@ install-hooks: ## opt in to a pre-push hook that runs `make ci-fast` on pushes t
 load: ## reproducible load exercise against a running stack (see README "Load exercise")
 	$(SIM) generate --out data/load.jsonl --seed 1 --devices $(LOAD_DEVICES) --duration $(LOAD_DURATION) --interval 1
 	$(SIM) replay data/load.jsonl --url $(URL) --batch-size $(LOAD_BATCH) --concurrency $(LOAD_CONCURRENCY) --retries 5
+
+app: ## run the self-contained local app in the terminal (embedded SQLite, no Docker)
+	go run ./cmd/signallab app
+
+desktop-dev: ## run the desktop app from source (needs Go and Node.js)
+	cd desktop && npm ci && npm start
+
+desktop-dist: ## build the installer / app for THIS operating system into desktop/dist
+	cd desktop && npm ci && npm run dist
+
+desktop-smoke: ## end-to-end test of the desktop app (headless Linux: xvfb-run -a make desktop-smoke)
+	cd desktop && npm ci && npm run smoke

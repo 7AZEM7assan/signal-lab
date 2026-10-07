@@ -12,15 +12,41 @@ It is a focused educational/reference project for backend and systems engineerin
 
 ## Scope and non-goals
 
-In scope: one Go service, one Python simulator/replayer/test harness, PostgreSQL, Docker Compose, NGINX, Prometheus, a deliberately small web monitor.
+In scope: one Go service, one Python simulator/replayer/test harness, PostgreSQL, Docker Compose, NGINX, Prometheus, a deliberately small web monitor, and a self-contained desktop app (the same service with an embedded SQLite database and a control panel).
 
 Non-goals (kept out on purpose): Kubernetes, authentication and multi-tenancy, cloud deployment, real hardware integrations, ClickHouse, a rules engine, elaborate dashboards, exactly-once delivery. Extension points are listed [at the end](#extension-points).
 
-## Quick start
+## Ways to run it
 
-Signal Lab runs on your own machine; there is nothing to sign up for or deploy. Prerequisites: Docker with the Compose plugin, Python 3.11+, GNU make. (Go 1.25 is only needed to run Go tests or build outside Docker.)
+| | For | Needs | Storage |
+|---|---|---|---|
+| **[Desktop app](#the-desktop-app)** | trying it, demos, managing runs from a window | nothing (download and open) | embedded SQLite |
+| **[Full stack](#quick-start-full-stack)** | the reference setup: NGINX, PostgreSQL, Prometheus | Docker, Python, make | PostgreSQL |
+| `make app` | the desktop engine in a browser, no Electron | Go | embedded SQLite |
+| [Recorded demo](#the-recorded-demo-no-docker-needed) | just looking | a browser | none |
 
-**Disk space.** The source is about 2 MB (a full `git clone` about 5 MB). Running the stack pulls about 1 GB of container images (PostgreSQL 424 MB, Prometheus 440 MB, NGINX 93 MB, the service image 25 MB), plus the 329 MB Go build image and some build cache the first time you build. Python needs no extra packages to run the simulator; tests need `pytest` and `websockets`.
+## The desktop app
+
+A native window around Signal Lab: run replays with fault controls, watch the live feed, browse and
+export stored data, edit settings and clear data, with no Docker, PostgreSQL or terminal.
+
+![Replay tab of the desktop app](docs/screenshots/app-replay.png)
+
+Download it from the [releases page](https://github.com/7AZEM7assan/signal-lab/releases) or build it
+with `make desktop-dist` (needs Go and Node.js). The installers are not code-signed, so macOS and
+Windows show a one-time warning; [`desktop/README.md`](desktop/README.md) explains how to open the
+app, where your data lives, how it works and how it is secured. The control API behind the panel is
+described in [`docs/app-api.md`](docs/app-api.md).
+
+The desktop app runs the same ingest pipeline, validation, alerting and WebSocket hub as the
+PostgreSQL service; only the store differs (SQLite instead of PostgreSQL, with the same idempotency
+rules). It is a local app: it binds to loopback only and requires a per-launch token.
+
+## Quick start (full stack)
+
+Signal Lab runs on your own machine; there is nothing to sign up for or deploy. (For the no-Docker route, see [the desktop app](#the-desktop-app).) Prerequisites: Docker with the Compose plugin, Python 3.11+, GNU make. (Go 1.25 is only needed to run Go tests or build outside Docker.)
+
+**Disk space.** The source is about 2 MB (a full `git clone` about 5 MB). Running the stack pulls about 1 GB of container images (PostgreSQL 424 MB, Prometheus 440 MB, NGINX 93 MB, the service image 25 MB), plus the 329 MB Go build image and some build cache the first time you build. Python needs no extra packages to run the simulator; tests need `pytest` and `websockets`. The desktop app is a separate route: about 120-160 MB to download (it includes the Electron runtime), no Docker.
 
 ```bash
 make up              # build and start app, postgres, nginx, prometheus
@@ -368,6 +394,8 @@ The SIL test `test_sil_faults.py` asserts exactly this policy, deriving the expe
 | Unit (Go) | validation and bounds, threshold boundaries, duplicate policy, queue-full/all-or-nothing, drain and retry, hub slow-client behaviour, API contract with fakes, WebSocket delivery, time calculations, config | `make test-go` | Go |
 | Race detection | all Go tests under the race detector | `make test-race` | Go + cgo |
 | Integration (Go) | migrations, idempotent persistence, duplicate rules, alert-failure isolation, pagination, and the full ingest → DB → HTTP → WebSocket path, each test in its own freshly migrated PostgreSQL schema | `make test-integration` | Docker (starts a throwaway Postgres) |
+| Unit/integration (Go, desktop engine) | embedded SQLite store (idempotency, savepoint alerts, keyset paging, clear), in-process generator and fault planner, replay runner against a fake server, control API end to end (token and Host checks, replay, browse, export, settings, clear), embedded panel and its content security policy | `make test-go` | Go |
+| Desktop (end to end) | the real Electron app and engine: window opens, page is isolated from Node, replay from the panel, data stored, quit stops the engine, restart keeps the data | `make desktop-smoke` (`xvfb-run -a` on headless Linux) | Go + Node |
 | Unit (Python) | generator determinism, seeded fault planning, pacing schedules, replayer against a stub server | `make test-py` | Python |
 | SIL | the real service image and PostgreSQL in Docker Compose: replay the deterministic dataset and verify persisted events and alerts, seeded faults, overload/backpressure, live WebSocket delivery, a stuck client, database outage and recovery, SIGTERM drain | `make test-sil` | Docker |
 | Everything | lint + all of the above | `make test-all` | all |
@@ -468,17 +496,22 @@ If you record numbers, record them as local results with the environment: CPU mo
 ## Repository layout
 
 ```text
-cmd/signallab/          entry point: serve | migrate | healthcheck
+cmd/signallab/          entry point: serve | migrate | healthcheck | app | version
 internal/config/        env parsing and validation
 internal/event/         schema, validation, in-batch duplicate check, time helpers
 internal/alert/         threshold rules
 internal/pipeline/      bounded queue, workers, retry, drain
 internal/store/         PostgreSQL access, migrations (embedded SQL)
+internal/sqlitestore/   embedded SQLite store used by the app (same semantics as store/)
+internal/lab/           in-process generator, fault planner and replay runner (the app's replay)
+internal/appctl/        the app's control plane: engine, settings, control API, security checks
+internal/appui/         the embedded control panel (plain HTML/CSS/JS, strict CSP)
 internal/hub/           WebSocket fan-out and slow-client policy
 internal/api/           HTTP handlers, middleware, WebSocket endpoint
 internal/metrics/       Prometheus instruments
 internal/testdb/        isolated-schema helper for integration tests
 internal/e2e/           ingest -> DB -> HTTP -> WebSocket integration tests
+desktop/                Electron shell, packaging config and end-to-end smoke test
 sim/                    Python simulator, replayer, fault injector, pytest suites (unit + SIL)
 sim/tools/              optional developer tools (screenshot capture, demo recorder)
 scripts/                ci.sh (local CI) and the opt-in pre-push hook

@@ -8,7 +8,9 @@
 #   scripts/ci.sh --no-sil   full run without the (slowest) SIL suite
 #
 # Exit status is non-zero if any stage fails. A missing tool is a failure, not a silent skip:
-# only the stages you explicitly turned off with --fast / --no-sil are reported as SKIPPED.
+# only the stages you explicitly turned off with --fast / --no-sil are reported as SKIPPED. The one
+# exception is the desktop-shell syntax check, which is SKIPPED (visibly) when Node.js is not
+# installed, since Node is only needed for the desktop/ folder.
 #
 # Environment:
 #   PYTHON                 interpreter that has pytest and ruff installed (default: python3)
@@ -82,6 +84,10 @@ pytest_unit() {
   (cd sim && "$PY" -m pytest -m "not sil" -q)
 }
 
+desktop_syntax() {
+  (cd desktop && for f in main.js preload.js scripts/build-go.js scripts/adhoc-sign.js scripts/gen-notices.js test/smoke.mjs test/screenshots.mjs; do node --check "$f" || exit 1; done)
+}
+
 container_build() {
   need "docker" docker info || return 1
   # shellcheck disable=SC2086  # CI_DOCKER_BUILD_ARGS is intentionally word-split
@@ -102,6 +108,11 @@ if [ "$FAST" = 1 ]; then
   run "go test (unit; database integration tests are skipped in --fast)" go_tests_unit
 else
   run "go test -race (with PostgreSQL)" go_tests_with_db
+fi
+if command -v node >/dev/null 2>&1; then
+  run "desktop shell (JavaScript syntax)" desktop_syntax
+else
+  skip "desktop shell (JavaScript syntax)" "node is not installed; only needed for desktop/"
 fi
 run "ruff (check + format)" ruff_checks
 run "pytest (unit)" pytest_unit
