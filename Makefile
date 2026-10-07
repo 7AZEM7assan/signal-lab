@@ -13,7 +13,7 @@ LOAD_BATCH       ?= 100
 
 .DEFAULT_GOAL := help
 .PHONY: help up down reset logs migrate psql replay-sample replay-faults fmt lint build \
-        test test-go test-race test-integration test-py test-sil test-all load
+        test test-go test-race test-integration test-py test-sil test-all load ci ci-fast install-hooks
 
 help: ## list targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -76,6 +76,16 @@ test-sil: ## software-in-the-loop tests (needs Docker; builds and starts a dispo
 	cd sim && python3 -m pytest -m sil -v
 
 test-all: lint test-integration test-py test-sil ## everything
+
+ci: ## everything the CI workflow runs, locally, with a summary (needs Docker)
+	scripts/ci.sh
+
+ci-fast: ## the same without Docker: lint, build, Go unit tests, ruff, Python unit tests
+	scripts/ci.sh --fast
+
+install-hooks: ## opt in to a pre-push hook that runs `make ci-fast` on pushes touching this project
+	git config core.hooksPath "$$(git rev-parse --show-prefix)scripts/git-hooks"
+	@echo "pre-push hook installed (core.hooksPath replaces any other hooks). Skip once with SKIP_CI=1 git push."
 
 load: ## reproducible load exercise against a running stack (see README "Load exercise")
 	$(SIM) generate --out data/load.jsonl --seed 1 --devices $(LOAD_DEVICES) --duration $(LOAD_DURATION) --interval 1
