@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"syscall"
 	"time"
 
 	"signallab/internal/alert"
@@ -496,5 +497,12 @@ func ListenLoopback(addr string) (net.Listener, error) {
 	if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
 		return nil, fmt.Errorf("refusing to listen on %q: the app only serves loopback addresses (127.0.0.1, ::1, localhost)", host)
 	}
-	return net.Listen("tcp", addr)
+	ln, err := net.Listen("tcp", addr)
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return nil, fmt.Errorf("port in use: %s is already used by another program (close it, or let Signal Lab pick a free port by using port 0): %w", addr, err)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("cannot listen on %s: %w", addr, err)
+	}
+	return ln, nil
 }

@@ -2,6 +2,7 @@ package lab
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -265,5 +266,29 @@ func TestRunnerReportsTransportErrors(t *testing.T) {
 	}
 	if snap.State != StateDone || snap.RequestErrors == 0 || snap.ErroredRecords != 180 || snap.Accepted != 0 {
 		t.Fatalf("expected every batch to error: %+v", snap)
+	}
+}
+
+func TestAutomaticSequencesOfSeparateRunsNeverOverlap(t *testing.T) {
+	c := small()
+	c.Devices, c.DurationS, c.IntervalS = 5, 100, 1
+	first, _ := Generate(c, fixedNow)
+	// A second run started only a short while later (here 30 s) must not reuse any
+	// (device, sequence) pair of the first one: the database would skip those events.
+	second, _ := Generate(c, fixedNow.Add(30*time.Second))
+	seen := map[string]bool{}
+	for _, r := range first {
+		seen[fmt.Sprintf("%v/%v", r["device_id"], r["sequence"])] = true
+	}
+	for _, r := range second {
+		if k := fmt.Sprintf("%v/%v", r["device_id"], r["sequence"]); seen[k] {
+			t.Fatalf("(device, sequence) %s appears in both runs", k)
+		}
+	}
+	// And the ids stay valid for the service (at most 64 characters).
+	for _, r := range second {
+		if len(r["event_id"].(string)) > 64 {
+			t.Fatalf("event id too long: %v", r["event_id"])
+		}
 	}
 }

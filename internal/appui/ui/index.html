@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Signal Lab</title>
-<link rel="icon" href="data:,">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
 <header class="top">
-  <div class="brand"><span class="logo" aria-hidden="true"></span><h1>Signal Lab</h1><span id="version" class="muted"></span></div>
+  <div class="brand"><img class="logo" src="icon.svg" alt="" width="28" height="28"><h1>Signal Lab</h1><span id="version" class="muted"></span></div>
   <div class="chips" aria-live="polite">
     <span class="pill" id="chipWs" title="Live feed connection">feed: connecting</span>
     <span class="pill" id="chipQueue" title="Ingest queue depth">queue: –</span>
@@ -24,6 +24,11 @@
   <button role="tab" data-tab="storage" aria-selected="false">Storage</button>
 </nav>
 <div id="banner" class="banner bad" role="alert" hidden></div>
+<div id="runDone" class="banner runDone" role="status" hidden>
+  <span id="runDoneText"></span>
+  <button type="button" id="runDoneView" class="primary">View in Data</button>
+  <button type="button" id="runDoneClose" aria-label="Dismiss this message">Dismiss</button>
+</div>
 
 <main>
 <!-- LIVE -->
@@ -37,46 +42,60 @@
     </div>
     <div class="card">
       <h2>Ingestion and queue health</h2>
-      <div class="row"><span>Queue depth</span><b id="mQueue">–</b></div>
+      <div class="row"><span>Queue depth<span class="tip" data-tip-id="queue"></span></span><b id="mQueue">–</b></div>
       <div class="meter"><div id="queueBar"></div></div>
-      <div class="row"><span>Accepted (queued)</span><b id="mAccepted">–</b></div>
-      <div class="row"><span>Rejected: invalid</span><b id="mInvalid">–</b></div>
-      <div class="row"><span>Rejected: overload (429)</span><b id="mOverload">–</b></div>
+      <div class="row"><span>Accepted (queued)<span class="tip" data-tip-id="accepted"></span></span><b id="mAccepted">–</b></div>
+      <div class="row"><span>Rejected: invalid<span class="tip" data-tip-id="invalid"></span></span><b id="mInvalid">–</b></div>
+      <div class="row"><span>Rejected: overload (429)<span class="tip" data-tip-id="overload"></span></span><b id="mOverload">–</b></div>
       <div class="row"><span>Stored / duplicate / failed</span><b id="mProcessed">–</b></div>
     </div>
     <div class="card wide">
       <h2>Latest reading per device</h2>
       <div class="scroll-x"><table>
-        <thead><tr><th>Device</th><th>Time (UTC)</th><th class="num">Temp °C</th><th class="num">Vibration mm/s</th></tr></thead>
-        <tbody id="devices"><tr><td colspan="4" class="muted">Nothing yet. Start a run in the <a href="#replay">Replay</a> tab.</td></tr></tbody>
+        <thead><tr><th>Device</th><th>Time (UTC)</th><th class="num">Temp °C</th><th>Temperature trend</th><th class="num">Vibration mm/s</th><th>Vibration trend</th><th>Status</th></tr></thead>
+        <tbody id="devices"></tbody>
       </table></div>
+      <div id="devicesEmpty" class="emptyState">
+        <p>No readings yet. Run the quick demo to see machines report in, or open the <a href="#replay">Replay</a> tab to set up your own run.</p>
+        <button type="button" class="primary demoBtn">Run quick demo</button>
+      </div>
+      <p id="trendLegend" class="muted small" hidden></p>
     </div>
     <div class="card wide">
       <h2>Alert feed</h2>
-      <ul id="alerts" class="feed"><li class="empty" id="noAlerts">No alerts yet.</li></ul>
+      <ul id="alerts" class="feed"><li class="empty" id="noAlerts">No alerts yet. Alerts appear when a reading reaches a threshold.</li></ul>
+      <div id="alertsEmpty" class="emptyState"><button type="button" class="demoBtn">Run quick demo</button></div>
     </div>
   </div>
 </section>
 
 <!-- REPLAY -->
 <section id="tab-replay" class="tab" role="tabpanel" hidden>
-  <div class="grid">
-    <form id="replayForm" class="card wide" autocomplete="off">
+  <div class="runbar" id="runbar">
+    <div class="presets" id="presets" role="group" aria-label="Presets"></div>
+    <div class="runctl">
+      <button type="submit" form="replayForm" class="primary" id="btnStart">Start replay</button>
+      <button type="button" id="btnStop" disabled>Stop</button>
+      <div class="mini" id="rpMini" aria-live="polite">
+        <span class="pill" id="rpMiniState">idle</span>
+        <div class="meter"><div id="rpMiniBar"></div></div>
+        <span id="rpMiniText" class="small">Ready to run</span>
+      </div>
+    </div>
+  </div>
+  <div class="replay-grid">
+    <form id="replayForm" class="card" autocomplete="off">
       <h2>Run a replay</h2>
       <p class="muted">Generates simulated machine readings, optionally damages them on purpose, and sends them to the service the same way any client would.</p>
-      <div class="presets" id="presets" role="group" aria-label="Presets"></div>
       <div id="fields" class="fields"></div>
       <p id="estimate" class="muted small"></p>
-      <div class="actions">
-        <button type="submit" class="primary" id="btnStart">Start replay</button>
-        <button type="button" id="btnStop" disabled>Stop</button>
-        <span id="formError" class="bad small" role="alert"></span>
-      </div>
+      <p id="formError" class="bad small" role="alert"></p>
     </form>
-    <div class="card wide" id="progressCard">
+    <div class="card" id="progressCard">
       <h2>Progress</h2>
       <div class="row"><span>State</span><span class="pill" id="rpState">idle</span></div>
       <div class="meter big"><div id="rpBar"></div></div>
+      <p id="rpSummary" class="summary" hidden></p>
       <div class="stats" id="rpStats"></div>
     </div>
   </div>
@@ -87,18 +106,18 @@
   <div class="card">
     <h2>Browse stored data</h2>
     <form id="dataForm" class="filters" autocomplete="off">
-      <label>Show <select id="dKind"><option value="events">Events</option><option value="alerts">Alerts</option></select></label>
+      <label>Show <select id="dKind"><option value="events">Readings (events)</option><option value="alerts">Alerts</option></select></label>
       <label>Device <select id="dDevice"><option value="">All devices</option></select></label>
       <label>From (UTC) <input id="dFrom" placeholder="2025-01-15T08:00:00Z"></label>
       <label>To (UTC) <input id="dTo" placeholder="blank = no limit"></label>
       <label>Rows <select id="dLimit"><option>50</option><option selected>100</option><option>500</option><option>1000</option></select></label>
       <button type="submit" class="primary">Search</button>
     </form>
-    <div class="actions">
-      <span class="muted small">Export everything that matches these filters:</span>
-      <a class="btn" id="exCsv" download>CSV</a>
+    <div class="actions" id="exportBar">
+      <a class="btn" id="exCsv" download>Export CSV</a>
+      <a class="btn" id="exJson" download>Export JSON</a>
       <a class="btn" id="exNd" download>NDJSON</a>
-      <a class="btn" id="exJson" download>JSON</a>
+      <span id="exportNote" class="muted small"></span>
     </div>
     <p id="dataNote" class="muted small" aria-live="polite"></p>
     <div class="scroll-x"><table id="dataTable"><thead></thead><tbody></tbody></table></div>

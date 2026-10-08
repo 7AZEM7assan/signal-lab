@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node scripts/build-go.js --host && electron .",
     "build:go": "node scripts/build-go.js",
-    "check": "node --check main.js && node --check preload.js && node --check scripts/build-go.js && node --check scripts/adhoc-sign.js && node --check scripts/gen-notices.js && node --check test/smoke.mjs && node --check test/screenshots.mjs",
+    "check": "node --check main.js && node --check preload.js && node --check preload-startup.js && node --check electron-builder.js && node --check scripts/build-go.js && node --check scripts/adhoc-sign.js && node --check scripts/signing.js && node --check scripts/gen-notices.js && node --check test/smoke.mjs && node --check test/screenshots.mjs && node --test test/config.test.mjs",
     "smoke": "node scripts/build-go.js --host && node test/smoke.mjs",
     "dist": "node scripts/build-go.js --host && electron-builder",
     "screenshots": "node scripts/build-go.js --host && node test/screenshots.mjs"

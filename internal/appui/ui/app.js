@@ -2,6 +2,65 @@
 // Signal Lab control panel. No framework and no build step; talks only to its own origin.
 const $ = (id) => document.getElementById(id);
 const desktop = window.signalLabDesktop || null; // set by the desktop app's preload script, if present
+if (desktop) document.body.classList.add("in-desktop"); // the window's title bar already says "Signal Lab"
+
+// ---------- plain-language help (one sentence each; the technical names stay visible) ----------
+const TIPS = {
+  // Replay fields
+  seed: "A number that decides the random data: the same seed always produces the same readings.",
+  devices: "How many simulated machines send readings.",
+  duration_s: "How many seconds of machine time to simulate; it is not how long the run takes.",
+  interval_s: "Seconds between two readings from the same machine.",
+  anomaly_rate: "Chance, per reading, that a machine starts a short hot or shaky episode that should trigger alerts.",
+  site_id: "A label for the plant the readings come from.",
+  rate_per_s: "How many readings are sent per second; 0 sends as fast as possible.",
+  batch_size: "How many readings go into each request to the service.",
+  concurrency: "How many requests are in flight at the same time.",
+  retries: "How many times a batch is sent again after the service answers 429 (\"too busy, try again later\").",
+  malformed_rate: "Share of readings deliberately broken (missing value, wrong type, bad time) to check the service rejects them.",
+  duplicate_rate: "Share of readings sent twice, to check the service never stores the same event twice (idempotency).",
+  late_rate: "Share of readings stamped in the past, to check late data is still accepted at its original time.",
+  late_seconds: "How far into the past the late readings are stamped.",
+  burst_every: "Every N-th batch starts a burst of batches sent at once; 0 turns bursts off.",
+  burst_size: "How many batches are released at the same instant in a burst.",
+  jitter_ms: "Random extra delay before each request, up to this many milliseconds.",
+  start: "When the first reading happens (UTC); blank means the run ends now.",
+  sequence_start: "Number of each machine's first reading; with the same seed and start time it resends exactly the same events.",
+  // Status labels
+  queue: "How many readings are waiting to be saved; when the waiting line is full the service answers 429.",
+  accepted: "The service checked these readings and put them in its waiting line; they are saved a moment later.",
+  invalid: "Readings the service refused because they were broken, or repeated inside one batch.",
+  overload: "429 means \"too busy\": the waiting line was full, so the service refused the batch and the sender tried again later.",
+  throttled: "429 means \"too busy\": the service's waiting line was full, so it refused the batch and the sender waited and retried.",
+  gaveup: "Readings that were still refused after every allowed retry.",
+  errors: "Requests that never reached the service or got an unexpected answer.",
+  injected: "Problems added on purpose: broken readings, repeated readings and late readings.",
+  latency: "How long the service took to answer each request; p50 is typical, p95 and p99 are the slow cases.",
+  backpressure: "Backpressure means the service slows senders down (with 429) instead of accepting more than it can save.",
+  idempotency: "Idempotency means sending the same event again changes nothing: it is stored only once.",
+};
+
+function tipEl(text) {
+  const s = document.createElement("span");
+  s.className = "tip"; s.tabIndex = 0; s.setAttribute("role", "img");
+  s.setAttribute("aria-label", text); s.dataset.tip = text;
+  return s;
+}
+for (const t of document.querySelectorAll("[data-tip-id]")) {
+  const text = TIPS[t.dataset.tipId];
+  if (!text) continue;
+  t.tabIndex = 0; t.setAttribute("role", "img"); t.setAttribute("aria-label", text); t.dataset.tip = text;
+}
+// Keep help bubbles on screen, and let Escape dismiss them (WCAG 1.4.13).
+function placeTip(e) {
+  const t = e.target.closest?.(".tip");
+  if (!t) return;
+  document.body.classList.remove("tips-off");
+  t.classList.toggle("tip-left", t.getBoundingClientRect().left > window.innerWidth * 0.5);
+}
+document.addEventListener("mouseover", placeTip);
+document.addEventListener("focusin", placeTip);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") document.body.classList.add("tips-off"); });
 
 // ---------- helpers ----------
 async function api(method, path, body) {
@@ -36,6 +95,7 @@ function el(tag, props, ...kids) {
   for (const k of kids) n.append(k);
   return n;
 }
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------- tabs ----------
 const TABS = ["live", "replay", "data", "settings", "storage"];
@@ -53,40 +113,103 @@ function showTab(name) {
 document.querySelector(".tabs").addEventListener("click", (e) => { const t = e.target.closest("[data-tab]"); if (t) showTab(t.dataset.tab); });
 window.addEventListener("hashchange", () => showTab(location.hash.slice(1)));
 
-// ---------- Live: WebSocket feed + metrics ----------
-const latest = new Map(), fired = new Map(), MAX_FIRED = 5000;
-let nEvents = 0, nAlerts = 0, retryMs = 300, renderQueued = false;
+// ---------- Live: WebSocket feed, trends and metrics ----------
+const TREND_POINTS = 60; // readings kept per device for the sparklines
+let thresholds = { temp: 85, vib: 7.1 }; // kept in sync with Settings
+const latest = new Map(), fired = new Map(), trend = new Map(), MAX_FIRED = 5000;
+let nEvents = 0, nAlerts = 0, retryMs = 300, renderTimer = null;
+
+const SVGNS = "http://www.w3.org/2000/svg";
+function svgEl(tag, attrs) {
+  const n = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, v);
+  return n;
+}
+// A small line chart of the last readings with the alert threshold as a dashed line. Readings at
+// or above the threshold get a triangle marker, so the alert does not depend on colour alone.
+function spark(values, threshold, what, unit, device) {
+  const W = 120, H = 30, P = 4;
+  const svg = svgEl("svg", { class: "spark", viewBox: `0 0 ${W} ${H}`, role: "img" });
+  const lo = Math.min(threshold, ...values), hi = Math.max(threshold, ...values), span = hi - lo || 1;
+  const y = (v) => P + (H - 2 * P) * (1 - (v - lo) / span);
+  const offset = TREND_POINTS - values.length;
+  const x = (i) => P + ((W - 2 * P) * (i + offset)) / (TREND_POINTS - 1);
+  const over = values.filter((v) => v >= threshold).length;
+  const label = `${what} trend for ${device}: last ${values.length} readings, latest ${values[values.length - 1]} ${unit}, ` +
+    `alert threshold ${threshold} ${unit}, ${over} reading${over === 1 ? "" : "s"} at or above it`;
+  svg.setAttribute("aria-label", label);
+  const title = svgEl("title"); title.textContent = label; svg.append(title);
+  svg.append(svgEl("line", { class: "thr", x1: 0, x2: W, y1: y(threshold), y2: y(threshold) }));
+  svg.append(svgEl("polyline", { class: "line", points: values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ") }));
+  values.forEach((v, i) => {
+    if (v < threshold) return;
+    const cx = x(i), cy = y(v);
+    svg.append(svgEl("path", { class: "pt", d: `M${cx.toFixed(1)} ${(cy - 4).toFixed(1)} L${(cx + 4).toFixed(1)} ${(cy + 3.5).toFixed(1)} L${(cx - 4).toFixed(1)} ${(cy + 3.5).toFixed(1)} Z` }));
+  });
+  svg.append(svgEl("circle", { class: "last", cx: x(values.length - 1).toFixed(1), cy: y(values[values.length - 1]).toFixed(1), r: 2 }));
+  return svg;
+}
+
 function renderDevices() {
-  renderQueued = false;
+  renderTimer = null;
   const body = $("devices"); body.replaceChildren();
-  if (latest.size === 0) { body.append(el("tr", {}, el("td", { colspan: 4, class: "muted", text: "Nothing yet. Start a run in the Replay tab." }))); return; }
+  const empty = latest.size === 0;
+  $("devicesEmpty").hidden = !empty;
+  $("devices").closest(".scroll-x").hidden = empty;
+  $("trendLegend").hidden = empty;
+  if (empty) return;
+  $("trendLegend").textContent = `Solid line: the last ${TREND_POINTS} readings. Dashed line: the alert threshold (${thresholds.temp} °C, ${thresholds.vib} mm/s). ▲ marks a reading at or above it.`;
   for (const [id, e] of [...latest].sort((a, b) => a[0].localeCompare(b[0]))) {
     const rules = fired.get(e.event_id);
-    const tr = el("tr", {},
+    const tHit = rules?.has("temperature_high") || e.temperature_c >= thresholds.temp;
+    const vHit = rules?.has("vibration_high") || e.vibration_mm_s >= thresholds.vib;
+    const h = trend.get(id) || { temp: [e.temperature_c], vib: [e.vibration_mm_s] };
+    const status = tHit || vHit
+      ? el("td", { class: "status-alert", text: `▲ Alert: ${[tHit && "temperature", vHit && "vibration"].filter(Boolean).join(" and ")}` })
+      : el("td", { class: "status-ok", text: "OK" });
+    body.append(el("tr", {},
       el("td", { class: "nowrap", text: id }),
       el("td", { class: "nowrap", title: e.event_time, text: e.event_time.slice(11, 19) }),
-      el("td", { class: "num" + (rules?.has("temperature_high") ? " hit" : ""), text: e.temperature_c.toFixed(2) }),
-      el("td", { class: "num" + (rules?.has("vibration_high") ? " hit" : ""), text: e.vibration_mm_s.toFixed(2) }));
-    body.append(tr);
+      el("td", { class: "num" + (tHit ? " hit" : ""), text: e.temperature_c.toFixed(2) }),
+      el("td", { class: "sparkcell" }, spark(h.temp, thresholds.temp, "Temperature", "°C", id)),
+      el("td", { class: "num" + (vHit ? " hit" : ""), text: e.vibration_mm_s.toFixed(2) }),
+      el("td", { class: "sparkcell" }, spark(h.vib, thresholds.vib, "Vibration", "mm/s", id)),
+      status));
   }
 }
-function scheduleRender() { if (!renderQueued) { renderQueued = true; requestAnimationFrame(renderDevices); } }
+function scheduleRender() { if (renderTimer == null) renderTimer = setTimeout(renderDevices, 250); }
 function addAlert(a) {
   $("noAlerts")?.remove();
+  $("alertsEmpty").hidden = true;
   if (!fired.has(a.event_id)) fired.set(a.event_id, new Set());
   fired.get(a.event_id).add(a.rule);
   if (fired.size > MAX_FIRED) fired.delete(fired.keys().next().value);
-  const li = el("li", { class: "bad", text: `${a.event_time}  ${a.device_id}  ${a.rule}  observed ${a.observed} (threshold ${a.threshold})` });
+  const li = el("li", { class: "bad", text: `▲ ${a.event_time}  ${a.device_id}  ${a.rule}  observed ${a.observed} (threshold ${a.threshold})` });
   const list = $("alerts"); list.prepend(li);
   while (list.children.length > 100) list.lastChild.remove();
   scheduleRender();
 }
+function resetLive() {
+  latest.clear(); fired.clear(); trend.clear(); nEvents = nAlerts = 0;
+  $("nEvents").textContent = "0"; $("nAlerts").textContent = "0";
+  const list = $("alerts"); list.replaceChildren(el("li", { class: "empty", id: "noAlerts", text: "No alerts yet. Alerts appear when a reading reaches a threshold." }));
+  $("alertsEmpty").hidden = false;
+  renderDevices();
+}
+function onEvent(d) {
+  nEvents++; latest.set(d.device_id, d);
+  let h = trend.get(d.device_id);
+  if (!h) { h = { temp: [], vib: [] }; trend.set(d.device_id, h); }
+  h.temp.push(d.temperature_c); h.vib.push(d.vibration_mm_s);
+  if (h.temp.length > TREND_POINTS) { h.temp.shift(); h.vib.shift(); }
+  $("nEvents").textContent = fmtInt(nEvents); scheduleRender();
+}
 function connectFeed() {
   const ws = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`);
-  ws.onopen = () => { retryMs = 300; setPill($("chipWs"), "feed: connected", "ok"); $("chipWs").textContent = "feed: connected"; };
+  ws.onopen = () => { retryMs = 300; setPill($("chipWs"), "feed: connected", "ok"); };
   ws.onmessage = (m) => {
     let msg; try { msg = JSON.parse(m.data); } catch { return; }
-    if (msg.type === "event") { nEvents++; latest.set(msg.data.device_id, msg.data); $("nEvents").textContent = fmtInt(nEvents); scheduleRender(); }
+    if (msg.type === "event") onEvent(msg.data);
     else if (msg.type === "alert") { nAlerts++; $("nAlerts").textContent = fmtInt(nAlerts); addAlert(msg.data); }
   };
   ws.onclose = () => { setPill($("chipWs"), "feed: reconnecting", "warn"); setTimeout(connectFeed, retryMs); retryMs = Math.min(retryMs * 2, 8000); };
@@ -122,7 +245,7 @@ async function pollMetrics() {
   } catch { /* leave the last values */ }
 }
 
-// ---------- Replay ----------
+// ---------- forms (Replay and Settings share the builder) ----------
 const REPLAY_FIELDS = [
   { group: "Data to generate" },
   { key: "seed", label: "Seed", min: 0, step: 1, hint: "Same seed, same data" },
@@ -136,7 +259,7 @@ const REPLAY_FIELDS = [
   { key: "batch_size", label: "Batch size", min: 1, step: 1 },
   { key: "concurrency", label: "Connections", min: 1, max: 16, step: 1 },
   { key: "retries", label: "Retries on 429", min: 0, max: 100, step: 1 },
-  { group: "Faults to inject (all optional)" },
+  { group: "Faults to inject (all optional)", collapsible: true },
   { key: "malformed_rate", label: "Malformed (%)", min: 0, max: 100, step: "any", pct: true, hint: "Broken records the service must reject" },
   { key: "duplicate_rate", label: "Duplicated (%)", min: 0, max: 100, step: "any", pct: true, hint: "Same event sent twice" },
   { key: "late_rate", label: "Late (%)", min: 0, max: 100, step: "any", pct: true },
@@ -144,29 +267,44 @@ const REPLAY_FIELDS = [
   { key: "burst_every", label: "Burst every N batches", min: 0, step: 1, hint: "0 = off" },
   { key: "burst_size", label: "Burst size (batches)", min: 0, step: 1 },
   { key: "jitter_ms", label: "Jitter (ms)", min: 0, step: "any" },
-  { group: "Advanced: repeat an exact run" },
+  { group: "Advanced: repeat an exact run", collapsible: true },
   { key: "start", label: "Start time (UTC)", text: true, hint: "Blank = ending now" },
   { key: "sequence_start", label: "First sequence", min: 0, step: 1, hint: "0 = automatic" },
 ];
 const PRESETS = [
-  { name: "Quick demo", cfg: {} },
-  { name: "Fault storm", cfg: { devices: 6, duration_s: 300, interval_s: 3, malformed_rate: 0.05, duplicate_rate: 0.08, late_rate: 0.05, burst_every: 5, burst_size: 3, jitter_ms: 20 } },
-  { name: "Backpressure demo", cfg: { devices: 8, duration_s: 300, interval_s: 5, rate_per_s: 80, batch_size: 10, concurrency: 2 },
+  { name: "Quick demo", cfg: {}, note: "Five machines for two simulated minutes, no faults." },
+  { name: "Fault storm", cfg: { devices: 6, duration_s: 300, interval_s: 3, malformed_rate: 0.05, duplicate_rate: 0.08, late_rate: 0.05, burst_every: 5, burst_size: 3, jitter_ms: 20 },
+    note: "Broken, repeated and late readings plus bursts, to see the service cope." },
+  { name: "Backpressure demo", tip: "backpressure",
+    cfg: { devices: 8, duration_s: 300, interval_s: 5, rate_per_s: 80, batch_size: 10, concurrency: 2 },
     settings: { queue_capacity: 150, workers: 1, worker_batch_size: 10, lab_worker_delay_ms: 250 },
     note: "Also sets a small queue and a slow worker in Settings so the queue fills and the service answers 429." },
-  { name: "Repeat exactly (idempotency)", cfg: { start: "2025-01-15T08:00:00Z", sequence_start: 1000 }, note: "Run this twice: the second run stores nothing new, because every event already exists." },
+  { name: "Repeat exactly (idempotency)", tip: "idempotency", cfg: { start: "2025-01-15T08:00:00Z", sequence_start: 1000 },
+    note: "Run this twice: the second run stores nothing new, because every event already exists." },
 ];
-let replayDefaults = null;
+let replayDefaults = {};
+
 function buildForm(container, fields, values) {
   container.replaceChildren();
+  let target = container;
   for (const f of fields) {
-    if (f.group) { container.append(el("div", { class: "group", text: f.group })); continue; }
+    if (f.group) {
+      if (f.collapsible) {
+        const inner = el("div", { class: "fields" });
+        container.append(el("details", { class: "accordion" }, el("summary", { text: f.group }), inner));
+        target = inner;
+      } else { target = container; container.append(el("div", { class: "group", text: f.group })); }
+      continue;
+    }
     const id = (container.id || "f") + "_" + f.key;
     const input = el("input", { id, name: f.key });
     if (f.text) input.type = "text"; else { input.type = "number"; input.step = f.step ?? "any"; if (f.min != null) input.min = f.min; if (f.max != null) input.max = f.max; input.inputMode = "decimal"; }
-    const lab = el("label", { for: id }, f.label, input);
+    const caption = el("span", { class: "lbl", text: f.label });
+    if (TIPS[f.key] && container.id === "fields") caption.append(tipEl(TIPS[f.key]));
+    const lab = el("label", { for: id }, caption);
+    lab.append(input);
     if (f.hint) lab.append(el("span", { class: "hint", text: f.hint }));
-    container.append(lab);
+    target.append(lab);
   }
   setFormValues(container, fields, values);
 }
@@ -185,14 +323,39 @@ function readForm(container, fields) {
   for (const f of fields) {
     if (f.group) continue;
     const input = container.querySelector(`[name="${f.key}"]`);
+    const fail = (msg) => { const e = new Error(msg); e.field = f.key; throw e; };
     if (f.text) { if (input.value.trim() !== "" || f.key === "site_id") out[f.key] = input.value.trim(); continue; }
-    if (input.value.trim() === "") throw new Error(`${f.label} is empty`);
+    if (input.value.trim() === "") fail(`${f.label} is empty`);
     const n = Number(input.value);
-    if (!Number.isFinite(n)) throw new Error(`${f.label} is not a number`);
+    if (!Number.isFinite(n)) fail(`${f.label} is not a number`);
     out[f.key] = f.pct ? n / 100 : n;
   }
   return out;
 }
+// Accordions start closed; open one when it holds a value that differs from the defaults, so a
+// preset's faults are never hidden.
+function syncAccordions() {
+  for (const d of document.querySelectorAll("#fields details.accordion")) {
+    const changed = [...d.querySelectorAll("input")].some((i) => {
+      const f = REPLAY_FIELDS.find((x) => x.key === i.name);
+      const def = replayDefaults[i.name] ?? "";
+      const shown = f?.pct && def !== "" ? +(def * 100).toFixed(4) : def;
+      return String(i.value) !== String(shown);
+    });
+    if (changed) d.open = true;
+  }
+}
+function revealField(key) {
+  const input = $("fields").querySelector(`[name="${key}"]`);
+  if (!input) return;
+  const d = input.closest("details");
+  if (d) d.open = true;
+  input.setAttribute("aria-invalid", "true");
+  input.focus();
+  input.addEventListener("input", () => input.removeAttribute("aria-invalid"), { once: true });
+}
+
+// ---------- Replay ----------
 function updateEstimate() {
   try {
     const c = readForm($("fields"), REPLAY_FIELDS);
@@ -209,37 +372,119 @@ function initReplay(defaults) {
   updateEstimate();
   const box = $("presets");
   for (const p of PRESETS) {
-    box.append(el("button", { type: "button", text: p.name, title: p.note || "" }));
-    box.lastChild.addEventListener("click", async () => {
+    const b = el("button", { type: "button", text: p.name, title: `${p.note}${p.tip ? " " + TIPS[p.tip] : ""}` });
+    box.append(b);
+    b.addEventListener("click", async () => {
       $("formError").textContent = "";
       setFormValues($("fields"), REPLAY_FIELDS, { ...replayDefaults, ...p.cfg });
+      syncAccordions();
       updateEstimate();
+      let note = p.note;
       if (p.settings) {
-        try { await api("PUT", "/app/api/settings", p.settings); $("formError").textContent = ""; $("estimate").textContent += " " + p.note; }
-        catch (e) { $("formError").textContent = "Could not apply the preset's settings: " + e.message; }
-      } else if (p.note) { $("estimate").textContent += " " + p.note; }
+        try { await api("PUT", "/app/api/settings", p.settings); await loadThresholds(); }
+        catch (e) { $("formError").textContent = "Could not apply the preset's settings: " + e.message; note = ""; }
+      }
+      $("estimate").textContent += " " + note + (p.tip ? " " + TIPS[p.tip] : "");
     });
   }
+}
+
+// What the page needs to describe a run once it finishes: the stored-row count before it started.
+let runWatch = null;
+async function startReplay(cfg) {
+  let base = null;
+  try { const st = await api("GET", "/app/api/state"); base = { events: st.storage.events, alerts: st.storage.alerts }; } catch { /* summary falls back to "accepted" */ }
+  const snap = await api("POST", "/app/api/replay/start", cfg);
+  runWatch = { startedAt: snap.started_at, base, reported: false };
+  hideRunDone();
+  renderReplay(snap);
+  return snap;
 }
 $("replayForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   $("formError").textContent = "";
   let cfg;
-  try { cfg = readForm($("fields"), REPLAY_FIELDS); } catch (err) { $("formError").textContent = err.message; return; }
-  try { renderReplay(await api("POST", "/app/api/replay/start", cfg)); }
+  try { cfg = readForm($("fields"), REPLAY_FIELDS); }
+  catch (err) { $("formError").textContent = err.message; if (err.field) revealField(err.field); return; }
+  try { await startReplay(cfg); }
   catch (err) { $("formError").textContent = err.message; }
 });
 $("btnStop").addEventListener("click", async () => { try { renderReplay(await api("POST", "/app/api/replay/stop")); } catch (err) { $("formError").textContent = err.message; } });
 
+// "Run quick demo" in the Live tab's empty states: the Quick demo preset, then back to Live.
+async function runQuickDemo(button) {
+  const buttons = document.querySelectorAll(".demoBtn");
+  for (const b of buttons) b.disabled = true;
+  try {
+    const cfg = { ...replayDefaults };
+    setFormValues($("fields"), REPLAY_FIELDS, cfg); updateEstimate();
+    await startReplay(cfg);
+    showTab("live");
+  } catch (err) {
+    banner("Could not start the demo: " + err.message);
+  } finally {
+    for (const b of buttons) b.disabled = false;
+  }
+}
+for (const b of document.querySelectorAll(".demoBtn")) b.addEventListener("click", () => runQuickDemo(b));
+
 const STATE_CLS = { running: "warn", done: "ok", stopped: "warn", failed: "bad", idle: "" };
-function stat(label, value) { return el("div", { class: "row" }, el("span", { text: label }), el("b", { text: value })); }
+function stat(label, value, tipKey) {
+  const l = el("span", { text: label });
+  if (tipKey) l.append(tipEl(TIPS[tipKey]));
+  return el("div", { class: "row" }, l, el("b", { text: value }));
+}
+function hideRunDone() { $("runDone").hidden = true; $("rpSummary").hidden = true; }
+function showRunDone(line) {
+  $("runDoneText").textContent = line;
+  $("runDone").hidden = false;
+  $("rpSummary").textContent = line; $("rpSummary").hidden = false;
+}
+// Wait until the queue is empty and the stored count stops moving, then report how many rows the run added.
+async function settledStoredCount(base) {
+  if (!base) return null;
+  let last = -1, stable = 0;
+  for (let i = 0; i < 60; i++) {
+    let st;
+    try { st = await api("GET", "/app/api/state"); } catch { return null; }
+    const events = st.storage.events;
+    if (st.engine.queue_depth === 0 && events === last) { if (++stable >= 2) return Math.max(0, events - base.events); } else stable = 0;
+    last = events;
+    await sleep(250);
+  }
+  return Math.max(0, last - base.events);
+}
+async function finishRun(s) {
+  const w = runWatch; w.reported = true;
+  const stored = await settledStoredCount(w.base);
+  let line = stored == null
+    ? `${fmtInt(s.records_done)} sent, ${fmtInt(s.accepted)} accepted, ${fmtInt(s.rejected)} rejected`
+    : `${fmtInt(s.records_done)} sent, ${fmtInt(stored)} stored, ${fmtInt(s.rejected)} rejected`;
+  const already = stored == null ? 0 : s.accepted - stored;
+  if (already > 0) line += ` (${fmtInt(already)} already stored)`;
+  if (s.gave_up_records > 0) line += `, ${fmtInt(s.gave_up_records)} gave up after retries`;
+  showRunDone((s.state === "stopped" ? "Stopped early: " : "Replay done: ") + line);
+}
+function viewInData() {
+  $("dKind").value = "events"; $("dDevice").value = ""; $("dFrom").value = ""; $("dTo").value = "";
+  showTab("data");
+  search(false);
+}
+$("runDoneView").addEventListener("click", viewInData);
+$("runDoneClose").addEventListener("click", () => { $("runDone").hidden = true; });
+
 function renderReplay(s) {
   const running = s.state === "running";
   setPill($("rpState"), s.state, STATE_CLS[s.state]);
   setPill($("chipReplay"), "replay: " + s.state, STATE_CLS[s.state]);
+  setPill($("rpMiniState"), s.state, STATE_CLS[s.state]);
   $("btnStart").disabled = running; $("btnStop").disabled = !running;
   const pct = s.planned ? Math.min(100, (100 * s.records_done) / s.planned) : 0;
-  $("rpBar").style.width = pct + "%";
+  $("rpBar").style.width = pct + "%"; $("rpMiniBar").style.width = pct + "%";
+  $("rpMiniText").textContent = s.state === "idle" ? "Ready to run"
+    : `${fmtInt(s.records_done)}/${fmtInt(s.planned)} sent · ${fmtInt(s.rejected)} rejected · ${fmtInt(s.throttled)} × 429`;
+  if (running && !runWatch) runWatch = { startedAt: s.started_at, base: null, reported: false }; // run started before this page loaded
+  if ((s.state === "done" || s.state === "stopped") && runWatch && !runWatch.reported && runWatch.startedAt === s.started_at) finishRun(s);
   const box = $("rpStats"); box.replaceChildren();
   if (s.state === "idle") { box.append(el("p", { class: "muted", text: "No replay has run yet." })); return; }
   const rc = Object.entries(s.rejection_counts || {}).map(([k, v]) => `${v} ${k.replaceAll("_", " ")}`).join(", ");
@@ -248,15 +493,15 @@ function renderReplay(s) {
   const rows = [
     ["Sent", `${fmtInt(s.records_done)} of ${fmtInt(s.planned)} records (${pct.toFixed(0)}%), ${fmtInt(s.batches_done)}/${fmtInt(s.batches)} batches`],
     ["Elapsed", `${(s.elapsed_s || 0).toFixed(1)} s, ${fmtInt(Math.round(s.throughput_per_s || 0))} records/s`],
-    ["Accepted (queued)", fmtInt(s.accepted)],
-    ["Rejected as invalid", fmtInt(s.rejected) + (rc ? `: ${rc}` : "")],
-    ["Told to slow down (429)", `${fmtInt(s.throttled)} times, ${fmtInt(s.retries)} retries`],
-    ["Gave up after retries", `${fmtInt(s.gave_up_records)} records`],
-    ["Request errors", `${fmtInt(s.request_errors)} (${fmtInt(s.errored_records)} records)`],
-    ["Injected faults", `${fmtInt(inj.malformed)} malformed, ${fmtInt(inj.duplicates)} duplicated, ${fmtInt(inj.late)} late`],
-    ["Request latency", lat.count ? `p50 ${lat.p50_ms} ms, p95 ${lat.p95_ms} ms, p99 ${lat.p99_ms} ms, max ${lat.max_ms} ms` : "–"],
+    ["Accepted (queued)", fmtInt(s.accepted), "accepted"],
+    ["Rejected as invalid", fmtInt(s.rejected) + (rc ? `: ${rc}` : ""), "invalid"],
+    ["Told to slow down (429)", `${fmtInt(s.throttled)} times, ${fmtInt(s.retries)} retries`, "throttled"],
+    ["Gave up after retries", `${fmtInt(s.gave_up_records)} records`, "gaveup"],
+    ["Request errors", `${fmtInt(s.request_errors)} (${fmtInt(s.errored_records)} records)`, "errors"],
+    ["Injected faults", `${fmtInt(inj.malformed)} malformed, ${fmtInt(inj.duplicates)} duplicated, ${fmtInt(inj.late)} late`, "injected"],
+    ["Request latency", lat.count ? `p50 ${lat.p50_ms} ms, p95 ${lat.p95_ms} ms, p99 ${lat.p99_ms} ms, max ${lat.max_ms} ms` : "–", "latency"],
   ];
-  for (const [k, v] of rows) box.append(stat(k, v));
+  for (const [k, v, tip] of rows) box.append(stat(k, v, tip));
   if (s.state === "done" || s.state === "stopped") {
     box.append(el("p", { class: "muted small note", text: "Accepted means queued in memory, not yet stored. See the Data and Storage tabs for what was saved." }));
   }
@@ -266,7 +511,7 @@ async function pollReplay() {
 }
 
 // ---------- Data ----------
-let cursor = null, shown = 0;
+let cursor = null, shown = 0, applied = new URLSearchParams(); // applied = the filters the table (and the export) use
 const EVENT_COLS = [["Event time (UTC)", (r) => r.event_time], ["Device", (r) => r.device_id], ["Event id", (r) => r.event_id], ["Seq", (r) => r.sequence ?? ""], ["Temp °C", (r) => r.temperature_c, true], ["Vibration mm/s", (r) => r.vibration_mm_s, true], ["Received", (r) => r.received_at]];
 const ALERT_COLS = [["Event time (UTC)", (r) => r.event_time], ["Device", (r) => r.device_id], ["Rule", (r) => r.rule], ["Observed", (r) => r.observed, true], ["Threshold", (r) => r.threshold, true], ["Event id", (r) => r.event_id], ["Raised", (r) => r.created_at]];
 function dataParams(withLimit) {
@@ -278,12 +523,17 @@ function dataParams(withLimit) {
   if (withLimit) p.set("limit", $("dLimit").value);
   return p;
 }
+// Exports use the filters of the last search, so the file always matches the table on screen.
 function updateExportLinks() {
-  const p = dataParams(false);
-  for (const [id, fmt] of [["exCsv", "csv"], ["exNd", "ndjson"], ["exJson", "json"]]) {
-    const q = new URLSearchParams(p); q.set("format", fmt);
+  for (const [id, fmt] of [["exCsv", "csv"], ["exJson", "json"], ["exNd", "ndjson"]]) {
+    const q = new URLSearchParams(applied); q.set("format", fmt);
     $(id).href = "/app/api/export?" + q;
   }
+  const what = applied.get("kind") === "alerts" ? "alerts" : "readings";
+  const dirty = dataParams(false).toString() !== applied.toString();
+  $("exportNote").textContent = dirty
+    ? "The filters changed: press Search so the table and the export use them."
+    : `Exports every ${what === "alerts" ? "alert" : "reading"} that matches the filters of the table, not only the rows shown.`;
 }
 async function loadDevices() {
   try {
@@ -296,28 +546,29 @@ async function loadDevices() {
   updateExportLinks();
 }
 async function search(more) {
-  const kind = $("dKind").value;
+  const kind = more ? applied.get("kind") : $("dKind").value;
   const cols = kind === "alerts" ? ALERT_COLS : EVENT_COLS;
   const table = $("dataTable");
   if (!more) {
-    cursor = null; shown = 0;
+    cursor = null; shown = 0; applied = dataParams(false);
     table.tBodies[0].replaceChildren();
     table.tHead.replaceChildren(el("tr", {}, ...cols.map(([h, , num]) => el("th", { class: num ? "num" : "", text: h }))));
   }
-  const p = dataParams(true);
+  const p = new URLSearchParams(applied); p.set("limit", $("dLimit").value);
   if (more && cursor) p.set("cursor", cursor);
   $("dataNote").textContent = "Loading…";
   let res;
-  try { res = await api("GET", "/app/api/data?" + p); } catch (e) { $("dataNote").textContent = e.message; return; }
+  try { res = await api("GET", "/app/api/data?" + p); } catch (e) { $("dataNote").textContent = e.message; updateExportLinks(); return; }
   for (const r of res.items) table.tBodies[0].append(el("tr", {}, ...cols.map(([, get, num]) => el("td", { class: num ? "num nowrap" : "nowrap", text: String(get(r)) }))));
   shown += res.items.length; cursor = res.next_cursor || null;
   $("btnMore").hidden = !cursor;
-  $("dataNote").textContent = shown === 0 ? "Nothing matches. Run a replay first, or widen the filters." : `Showing ${fmtInt(shown)} ${kind}${cursor ? " (more available)" : ""}.`;
+  const noun = kind === "alerts" ? "alerts" : "readings";
+  $("dataNote").textContent = shown === 0 ? "Nothing matches. Run a replay first, or widen the filters." : `Showing ${fmtInt(shown)} ${noun}${cursor ? " (more available)" : ""}.`;
   updateExportLinks();
 }
 $("dataForm").addEventListener("submit", (e) => { e.preventDefault(); search(false); });
 $("btnMore").addEventListener("click", () => search(true));
-for (const id of ["dKind", "dDevice", "dFrom", "dTo"]) $(id).addEventListener("change", updateExportLinks);
+for (const id of ["dKind", "dDevice", "dFrom", "dTo"]) { $(id).addEventListener("change", updateExportLinks); $(id).addEventListener("input", updateExportLinks); }
 
 // ---------- Settings ----------
 const SETTINGS_FIELDS = [
@@ -328,12 +579,19 @@ const SETTINGS_FIELDS = [
   { key: "worker_batch_size", label: "Worker batch size", min: 1, step: 1 },
   { key: "lab_worker_delay_ms", label: "Artificial worker delay (ms)", min: 0, max: 10000, step: 1, hint: "A lab knob that slows storing so you can see backpressure" },
 ];
-let settingsDefaults = null;
+function setThresholds(settings) {
+  if (!settings) return;
+  thresholds = { temp: settings.temp_alert_c, vib: settings.vib_alert_mm_s };
+  renderDevices();
+}
+async function loadThresholds() {
+  try { setThresholds((await api("GET", "/app/api/settings")).settings); } catch { /* keep the defaults */ }
+}
 async function loadSettings() {
   try {
-    const { settings, defaults } = await api("GET", "/app/api/settings");
-    settingsDefaults = defaults;
+    const { settings } = await api("GET", "/app/api/settings");
     if (!$("settingsFields").children.length) buildForm($("settingsFields"), SETTINGS_FIELDS, settings); else setFormValues($("settingsFields"), SETTINGS_FIELDS, settings);
+    setThresholds(settings);
   } catch { /* banner */ }
 }
 function settingsMsg(text, cls) { const m = $("settingsMsg"); m.textContent = text; m.className = "small " + (cls || ""); }
@@ -342,13 +600,13 @@ $("settingsForm").addEventListener("submit", async (e) => {
   let body; try { body = readForm($("settingsFields"), SETTINGS_FIELDS); } catch (err) { settingsMsg(err.message, "bad"); return; }
   try {
     const r = await api("PUT", "/app/api/settings", body);
-    setFormValues($("settingsFields"), SETTINGS_FIELDS, r.settings);
+    setFormValues($("settingsFields"), SETTINGS_FIELDS, r.settings); setThresholds(r.settings);
     settingsMsg(r.engine_rebuilt ? "Saved. The ingest engine was rebuilt." : "Saved and applied.", "ok");
   } catch (err) { settingsMsg(err.message, "bad"); }
 });
 $("btnDefaults").addEventListener("click", async () => {
   settingsMsg("");
-  try { const r = await api("POST", "/app/api/settings/reset"); setFormValues($("settingsFields"), SETTINGS_FIELDS, r.settings); settingsMsg("Defaults restored.", "ok"); }
+  try { const r = await api("POST", "/app/api/settings/reset"); setFormValues($("settingsFields"), SETTINGS_FIELDS, r.settings); setThresholds(r.settings); settingsMsg("Defaults restored.", "ok"); }
   catch (err) { settingsMsg(err.message, "bad"); }
 });
 
@@ -374,7 +632,7 @@ $("clearForm").addEventListener("submit", async (e) => {
     const r = await api("POST", "/app/api/storage/clear", { confirm: $("clearConfirm").value });
     m.textContent = `Deleted ${fmtInt(r.deleted_events)} events and ${fmtInt(r.deleted_alerts)} alerts.`; m.className = "small ok";
     $("clearConfirm").value = ""; $("btnClear").disabled = true;
-    latest.clear(); fired.clear(); nEvents = nAlerts = 0; $("nEvents").textContent = "0"; $("nAlerts").textContent = "0"; renderDevices();
+    resetLive(); hideRunDone();
     refreshState();
   } catch (err) { m.textContent = err.message; m.className = "small bad"; }
 });
@@ -389,7 +647,9 @@ if (desktop) {
   showTab(location.hash.slice(1));
   const s = await refreshState().catch(() => null);
   initReplay(s?.replay_defaults || {});
-  if (s) renderDevices();
+  applied = dataParams(false); updateExportLinks();
+  await loadThresholds();
+  renderDevices();
   connectFeed(); pollMetrics(); pollReplay();
   setInterval(pollMetrics, 2000);
   setInterval(pollReplay, 700);
