@@ -56,7 +56,12 @@ jobs:
           APPLE_ID: ${{ matrix.target == 'mac' && secrets.APPLE_ID || '' }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.target == 'mac' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ matrix.target == 'mac' && secrets.APPLE_TEAM_ID || '' }}
-        run: npx electron-builder ${{ matrix.builder }}
+        run: npm run package -- ${{ matrix.builder }}
+      # electron-builder once exited successfully on Windows without building anything; listing the
+      # output makes that visible here instead of at the upload step.
+      - name: List the packaged files
+        working-directory: desktop
+        run: ls -la dist
       - name: End-to-end smoke test of the packaged Linux app
         if: matrix.target == 'linux'
         working-directory: desktop
