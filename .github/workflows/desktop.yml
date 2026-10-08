@@ -70,11 +70,11 @@ jobs:
           name: signal-lab-${{ matrix.target }}
           if-no-files-found: error
           path: |
-            desktop/dist/Signal-Lab-*.AppImage
-            desktop/dist/Signal-Lab-*.tar.gz
-            desktop/dist/Signal-Lab-*.exe
-            desktop/dist/Signal-Lab-*.zip
-            desktop/dist/Signal-Lab-*.dmg
+            desktop/dist/*.AppImage
+            desktop/dist/*.tar.gz
+            desktop/dist/*.exe
+            desktop/dist/*.zip
+            desktop/dist/*.dmg
 
   release:
     name: Attach to the release
