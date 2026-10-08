@@ -22,9 +22,25 @@ type Options struct {
 	Version string
 	UI      http.Handler
 	Log     *slog.Logger
-	// Ready is called once the listener is up with the URL (including the token) to open.
-	Ready func(url string)
+	// Ready is called once the listener is up. It is the only place the token leaves Run besides
+	// the HTTP cookie flow: callers decide where to put it (a terminal, or a pipe to the launcher),
+	// and nothing in this package logs it.
+	Ready func(Ready)
 }
+
+// Ready describes a started server.
+type Ready struct {
+	Addr  string // host:port, e.g. 127.0.0.1:51734
+	Port  int
+	Token string
+}
+
+// URL is the address without any secret, safe to log.
+func (r Ready) URL() string { return "http://" + r.Addr }
+
+// LinkURL is the address plus the one-time token: opening it in a browser starts a session.
+// It is a credential; print it to the person who owns the machine, never to a log file.
+func (r Ready) LinkURL() string { return r.URL() + "/?token=" + r.Token }
 
 // NewToken returns a random 256-bit hex token.
 func NewToken() (string, error) {
@@ -52,17 +68,18 @@ func Run(ctx context.Context, o Options) error {
 	if len(o.Token) < 16 {
 		return errors.New("token must be at least 16 characters")
 	}
-	if err := os.MkdirAll(o.DataDir, 0o700); err != nil {
-		return fmt.Errorf("create data directory: %w", err)
+	if err := CheckWritable(o.DataDir); err != nil {
+		return err
+	}
+	// Listen first so a busy port is reported before anything is created on disk.
+	ln, err := ListenLoopback(o.Addr)
+	if err != nil {
+		return err
 	}
 	eng, err := NewEngine(o.DataDir, o.Log)
 	if err != nil {
-		return fmt.Errorf("start engine: %w", err)
-	}
-	ln, err := ListenLoopback(o.Addr)
-	if err != nil {
-		eng.Close(context.Background())
-		return err
+		_ = ln.Close()
+		return fmt.Errorf("could not open the database in %q: %w", o.DataDir, err)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 
@@ -78,7 +95,7 @@ func Run(ctx context.Context, o Options) error {
 	go func() { errc <- httpServer.Serve(ln) }()
 	o.Log.Info("signal lab app started", "addr", ln.Addr().String(), "data_dir", o.DataDir, "version", o.Version)
 	if o.Ready != nil {
-		o.Ready("http://127.0.0.1:" + strconv.Itoa(port) + "/?token=" + o.Token)
+		o.Ready(Ready{Addr: "127.0.0.1:" + strconv.Itoa(port), Port: port, Token: o.Token})
 	}
 
 	select {
@@ -98,5 +115,23 @@ func Run(ctx context.Context, o Options) error {
 	}
 	eng.Close(sctx)
 	o.Log.Info("shutdown complete")
+	return nil
+}
+
+// CheckWritable makes sure dir exists and files can be created in it, and says why if not.
+// Without this a read-only folder surfaces later as an obscure SQLite error.
+func CheckWritable(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("the data folder %q cannot be created: %w", dir, err)
+	}
+	f, err := os.CreateTemp(dir, ".write-test-*")
+	if err != nil {
+		return fmt.Errorf("the data folder %q is not writable: %w", dir, err)
+	}
+	name := f.Name()
+	_ = f.Close()
+	if err := os.Remove(name); err != nil {
+		return fmt.Errorf("the data folder %q is not writable: %w", dir, err)
+	}
 	return nil
 }

@@ -45,14 +45,21 @@ func runApp(args []string) error {
 	return appctl.Run(ctx, appctl.Options{
 		Addr: *addr, DataDir: *dir, Token: os.Getenv("SIGNALLAB_APP_TOKEN"), Version: version,
 		UI: appui.Handler(), Log: log,
-		Ready: func(url string) {
+		Ready: func(r appctl.Ready) {
 			if *readyJSON {
-				_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"event": "ready", "url": url, "data_dir": *dir})
+				_ = json.NewEncoder(os.Stdout).Encode(readyMessage(r, *dir))
 				return
 			}
-			fmt.Printf("\nSignal Lab is running.\n\n  Open:  %s\n  Data:  %s\n\nThis link contains a one-time token and only works on this computer. Press Ctrl+C to stop.\n\n", url, *dir)
+			fmt.Printf("\nSignal Lab is running.\n\n  Open:  %s\n  Data:  %s\n\nThis link contains a one-time token and only works on this computer. Press Ctrl+C to stop.\n\n", r.LinkURL(), *dir)
 		},
 	})
+}
+
+// readyMessage is the single machine-readable line the desktop shell reads from stdout. The token
+// is a separate field so the shell can use it, while url, addr and port are safe to log. The
+// shell must not write this line to a log file as is (it redacts the token).
+func readyMessage(r appctl.Ready, dataDir string) map[string]any {
+	return map[string]any{"event": "ready", "addr": r.Addr, "port": r.Port, "url": r.URL(), "token": r.Token, "data_dir": dataDir}
 }
 
 func envOr(name, def string) string {
