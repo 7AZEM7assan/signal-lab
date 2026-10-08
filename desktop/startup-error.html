@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-__NONCE__'; script-src 'nonce-__NONCE__'">
+<title>Signal Lab could not start</title>
+<style nonce="__NONCE__">
+  :root { --bg:#f6f7f9; --card:#fff; --fg:#1b1f24; --muted:#59636f; --line:#dde1e7; --bad:#b4281f; --accent:#2457c5; --accent-fg:#fff; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14171b; --card:#1c2026; --fg:#e6e9ee; --muted:#9aa5b4; --line:#2b313a; --bad:#ef6f64; --accent:#7aa2f7; --accent-fg:#0d1117; } }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:32px 20px; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width:720px; margin:0 auto; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:24px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .reason { margin:12px 0 4px; padding:10px 12px; border:1px solid var(--bad); border-radius:8px; font-weight:600; overflow-wrap:anywhere; }
+  .hint { color:var(--muted); margin:8px 0 16px; }
+  details { margin:12px 0; border:1px solid var(--line); border-radius:8px; padding:0 12px; }
+  summary { cursor:pointer; padding:8px 0; font-weight:600; }
+  pre { margin:0 0 12px; max-height:260px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.45 ui-monospace, Menlo, Consolas, monospace; }
+  .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+  button { font:inherit; color:var(--fg); background:var(--card); border:1px solid var(--line); border-radius:6px; padding:7px 14px; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); font-weight:600; }
+  button:focus-visible, summary:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  #status { margin-top:10px; color:var(--muted); min-height:1.4em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Signal Lab could not start</h1>
+  <p class="hint">The background engine that stores and serves your data did not start, so there is nothing to show yet. Nothing was changed or deleted.</p>
+  <p class="reason" id="reason" role="alert">Starting…</p>
+  <p class="hint" id="advice"></p>
+  <details>
+    <summary>Technical details</summary>
+    <pre id="details"></pre>
+  </details>
+  <div class="actions">
+    <button type="button" class="primary" id="retry">Try again</button>
+    <button type="button" id="copy">Copy details</button>
+    <button type="button" id="choose">Choose another data folder…</button>
+    <button type="button" id="openlog">Open log folder</button>
+    <button type="button" id="quit">Quit</button>
+  </div>
+  <p id="status" role="status"></p>
+</main>
+<script nonce="__NONCE__">
+  const $ = (id) => document.getElementById(id);
+  const say = (t) => { $("status").textContent = t; };
+  window.signalLabStartup.getInfo().then((info) => {
+    $("reason").textContent = info.reason;
+    $("advice").textContent = info.advice || "";
+    $("details").textContent = info.details;
+  });
+  $("copy").addEventListener("click", async () => { await window.signalLabStartup.copyDetails(); say("Details copied to the clipboard."); });
+  $("openlog").addEventListener("click", async () => { const err = await window.signalLabStartup.openLogFolder(); say(err ? "Could not open the folder: " + err : "Opened the log folder."); });
+  $("choose").addEventListener("click", async () => { const started = await window.signalLabStartup.chooseFolder(); if (started) say("Starting with the new folder…"); });
+  $("retry").addEventListener("click", () => { say("Trying again…"); window.signalLabStartup.retry(); });
+  $("quit").addEventListener("click", () => window.signalLabStartup.quit());
+  $("retry").focus();
+</script>
+</body>
+</html>

@@ -169,7 +169,11 @@ func Generate(c Config, now time.Time) ([]Record, error) {
 	}
 	seq0 := c.SequenceStart
 	if seq0 == 0 {
-		seq0 = now.Unix() // a fresh, increasing base so separate runs never collide on (device, sequence)
+		// A fresh base for every run. Sequence numbers are unique per device in the database, so two
+		// runs that overlapped here would have their events silently skipped as duplicates.
+		// Microseconds since the epoch leave a run of N steps clear of any run started more than
+		// N microseconds later, which separate (non-overlapping) runs always are.
+		seq0 = now.UnixMicro()
 	}
 	site := c.SiteID
 

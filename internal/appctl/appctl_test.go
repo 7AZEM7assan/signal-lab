@@ -468,3 +468,23 @@ func TestListenLoopbackRefusesNetworkAddresses(t *testing.T) {
 	}
 	ln.Close()
 }
+
+func TestBackToBackRunsOfTheSameDevicesAllGetStored(t *testing.T) {
+	a := newApp(t, "")
+	body := replayBody(map[string]any{"duration_s": 40, "anomaly_rate": 0})
+	var perRun float64
+	for run := 1; run <= 3; run++ {
+		if c := a.json("POST", "/app/api/replay/start", body, nil); c != 202 {
+			t.Fatalf("run %d: start returned %d", run, c)
+		}
+		done := a.waitReplay()
+		if done["state"] != "done" {
+			t.Fatalf("run %d: %v", run, done["state"])
+		}
+		a.settle()
+		perRun = done["accepted"].(float64)
+		if events, _ := a.stats(); events != perRun*float64(run) {
+			t.Fatalf("after run %d: %v events stored, want %v (a later run's events were skipped as duplicates of an earlier run)", run, events, perRun*float64(run))
+		}
+	}
+}

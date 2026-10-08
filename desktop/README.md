@@ -15,7 +15,7 @@ paid developer certificates, so each operating system shows a one-time warning:
 |---|---|---|
 | **macOS** (Apple Silicon or Intel) | `Signal-Lab-<version>-mac-arm64.dmg` / `-x64.dmg` | Drag *Signal Lab* to Applications. If macOS says it cannot verify the developer, open **System Settings > Privacy & Security** and click **Open Anyway**, or run `xattr -dr com.apple.quarantine "/Applications/Signal Lab.app"` once. |
 | **Windows** (x64 or ARM64) | `Signal-Lab-<version>-win-x64.exe` (installer) or `.zip` (no install) | SmartScreen may say "Windows protected your PC": click **More info > Run anyway**. |
-| **Linux** (x64) | `Signal-Lab-<version>-linux-x64.AppImage` or `.tar.gz` | `chmod +x Signal-Lab-*.AppImage && ./Signal-Lab-*.AppImage` |
+| **Linux** (x64) | `Signal-Lab-<version>-linux-x86_64.AppImage` or `.tar.gz` | `chmod +x Signal-Lab-*.AppImage && ./Signal-Lab-*.AppImage` |
 
 The download is about 120-160 MB because it includes the Electron runtime; the Signal Lab engine
 itself is an 18 MB program.
@@ -67,7 +67,11 @@ signallab app  (Go engine: ingest pipeline, SQLite, replay runner, control API)
   the chosen port from the engine's first output line, and opens a window on it.
 - On quit it asks the engine to shut down (`POST /app/api/shutdown`), which drains the queue to
   the database, and only kills it if that takes longer than 12 seconds.
-- If the engine dies, the app offers to restart it or open the log.
+- If the engine dies later, the app offers to restart it or open the log.
+- If the engine cannot start (for example the data folder is not writable, or the port is in use), the
+  app shows an error screen with the reason in plain words, a **Copy details** button (version,
+  platform, folders and the engine's own output, with no token), **Open log folder**, **Try again**
+  and **Quit**, instead of an empty window.
 
 ### Security model
 
@@ -79,6 +83,9 @@ your browser, so it is locked down:
 - every request needs a random 256-bit token created at each launch: the window receives it as a
   strict, HTTP-only cookie, and scripts may send it as `X-SignalLab-Token`. Writes made with the
   cookie must also be same-origin and carry `X-Requested-With: signallab`;
+- the token is handed to the shell on a pipe (the engine's `--ready-json` line) and is never written to
+  the log file: the log shows only the address and port, and the shell redacts anything that looks like
+  a token before logging engine output;
 - the panel runs with a strict content security policy (no inline or third-party code);
 - the Electron window uses context isolation, the sandbox, no Node.js access, no pop-ups, no
   navigation away, no browser permissions, and exposes only two folder actions to the page.
@@ -93,6 +100,41 @@ xvfb-run -a make desktop-smoke         # the same on a headless Linux machine
 
 `SMOKE_PACKAGED=/path/to/the/built/executable` runs the same test against a built app. To try the engine
 without Electron: `make app` prints a link to open in any browser.
+
+## Signing and notarization (optional, macOS)
+
+By default the macOS app is **ad-hoc signed** (`scripts/adhoc-sign.js`): it runs on Apple Silicon, but a
+copy downloaded from the internet still triggers Gatekeeper's first-launch warning. With an Apple
+Developer account (paid) you can ship a signed, notarized app that opens without the warning.
+
+The build switches to Developer ID signing and notarization **only when both groups of environment
+variables are set**; otherwise nothing changes (`scripts/signing.js` decides, and prints which mode it
+chose; a partial set falls back to ad-hoc and names what is missing).
+
+| Group | Variables |
+|---|---|
+| Certificate (a *Developer ID Application* certificate exported as `.p12`) | `CSC_LINK` (path, URL or base64 of the `.p12`) and `CSC_KEY_PASSWORD`; or `CSC_NAME` to use a certificate already in your keychain |
+| Notarization, option A (Apple ID) | `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` (created at appleid.apple.com), `APPLE_TEAM_ID` |
+| Notarization, option B (App Store Connect API key) | `APPLE_API_KEY` (path to the `.p8`), `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` |
+
+Locally:
+
+```bash
+export CSC_NAME="Developer ID Application: Your Name (ABCDE12345)"   # or CSC_LINK + CSC_KEY_PASSWORD
+export APPLE_ID=you@example.com APPLE_APP_SPECIFIC_PASSWORD=abcd-efgh-ijkl-mnop APPLE_TEAM_ID=ABCDE12345
+make desktop-dist
+```
+
+In GitHub Actions, add the repository secrets `MAC_CERT_P12_BASE64` (`base64 -i cert.p12 | pbcopy`),
+`MAC_CERT_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID`; the macOS job passes
+them through (empty when a secret is missing, which keeps the ad-hoc build). Notarization uploads the
+app to Apple and waits for the result, which usually takes a few minutes.
+
+Check a signed build with `codesign --verify --deep --strict "Signal Lab.app"`,
+`spctl -a -vv "Signal Lab.app"` and `xcrun stapler validate "Signal Lab.app"`.
+
+> Status: the switch itself is unit-tested (`test/config.test.mjs`), but notarization needs an Apple
+> account and a Mac, so it has **not been run end to end**. Treat the first signed build as a test.
 
 ## Licences
 

@@ -85,7 +85,8 @@ pytest_unit() {
 }
 
 desktop_syntax() {
-  (cd desktop && for f in main.js preload.js scripts/build-go.js scripts/adhoc-sign.js scripts/gen-notices.js test/smoke.mjs test/screenshots.mjs; do node --check "$f" || exit 1; done)
+  (cd desktop && for f in main.js preload.js preload-startup.js electron-builder.js scripts/build-go.js scripts/adhoc-sign.js scripts/signing.js scripts/gen-notices.js test/smoke.mjs test/screenshots.mjs test/config.test.mjs; do node --check "$f" || exit 1; done \
+    && node --test test/config.test.mjs)
 }
 
 container_build() {
@@ -110,9 +111,9 @@ else
   run "go test -race (with PostgreSQL)" go_tests_with_db
 fi
 if command -v node >/dev/null 2>&1; then
-  run "desktop shell (JavaScript syntax)" desktop_syntax
+  run "desktop shell (JavaScript syntax, signing config tests)" desktop_syntax
 else
-  skip "desktop shell (JavaScript syntax)" "node is not installed; only needed for desktop/"
+  skip "desktop shell (JavaScript syntax, signing config tests)" "node is not installed; only needed for desktop/"
 fi
 run "ruff (check + format)" ruff_checks
 run "pytest (unit)" pytest_unit
