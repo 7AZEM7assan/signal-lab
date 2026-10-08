@@ -34,6 +34,9 @@ Errors have the shape `{"error": {"code": "...", "message": "..."}}`.
 | `GET /app/api/replay` | progress of the current or last replay |
 | `POST /app/api/replay/start` | start a replay; body is a JSON object with any of the fields below (omitted fields use the defaults); `409` if one is running |
 | `POST /app/api/replay/stop` | stop a running replay and return its final state |
+| `PUT /app/api/replay/dataset` | import a file to replay: the CSV, NDJSON or JSON file is the request body (up to 32 MB, 200,000 rows), `?name=` is shown as its name. Replaces the previous file; kept in memory only. `400 invalid_dataset` says what is wrong. Returns `{"dataset": summary}` |
+| `GET /app/api/replay/dataset` | the imported file's summary (`{"dataset": null}` when none): `name`, `format`, `rows`, `devices`, `columns`, `mapped`, `ignored`, `derived`, `first_time`, `last_time`, and `problems` (rows the Signal Lab schema would reject, by reason) |
+| `DELETE /app/api/replay/dataset` | forget the imported file |
 | `GET /app/api/settings` | current settings and defaults |
 | `PUT /app/api/settings` | change settings (omitted fields keep their value). Thresholds apply at once; queue, workers, batch size and delay rebuild the engine (`409` while a replay runs). Response has `engine_rebuilt` |
 | `POST /app/api/settings/reset` | restore the defaults |
@@ -51,6 +54,28 @@ empty = the run ends now), `sequence_start` (0 = automatic), `rate_per_s` (0 = u
 `duplicate_rate`, `late_rate` (each 0-1), `late_seconds`, `burst_every`, `burst_size`, `jitter_ms`.
 At most 500,000 readings per run. Setting `start`, `sequence_start` and `seed` to fixed values
 resends exactly the same events, which the database skips as duplicates.
+
+To send to a service of your own, add:
+
+| Field | Meaning |
+|---|---|
+| `target_url` | `http` or `https` address that accepts `POST`. Empty (default) = the app's built-in service. No credentials in the address |
+| `target_headers` | object of extra request headers, for example `{"Authorization":"Bearer ..."}`; at most 20; `Host`, `Content-Length`, `Connection` and similar are refused. Needs `target_url` |
+| `payload_format` | `batch` (default, `{"events":[...]}`), `array`, `ndjson` or `single` (one record per request; the batch size becomes 1). Needs `target_url` |
+| `target_confirmed` | must be `true` unless the host is `localhost`/`127.0.0.1`/`::1`: "I own this service or may test it". Outside this computer the rate must also be 1-2,000 records/s |
+
+To send your own data, import a file first, then add `"use_dataset": true` (and optionally
+`"rebase_time": true` to shift the timestamps so the newest reading is now). The generator fields
+are then ignored; faults, rate, batching and retries still apply.
+
+Sending to your own service never includes the app's token. The replay state and the start
+response contain only the host (`target`, e.g. `https://api.example.com`), never header values, a
+path or a query string; `config.target_headers` shows `(hidden)`. Extra state fields: `external`,
+`source` (generated data or the file name), `status_counts` (responses by HTTP status) and
+`first_error` (`batch`, `status`, `message`, and the start of the response `body`). For a service of
+your own, any `2xx` counts as accepted, `429`/`503` are retried, other statuses are errors,
+redirects are not followed, and nothing is stored in the app. `GET /app/api/state` also returns
+`dataset` and `replay_limits`.
 
 The generator is deterministic for a given configuration but is not byte-identical to the Python
 tool's output (`sim/`): the shapes, units and fault semantics match.

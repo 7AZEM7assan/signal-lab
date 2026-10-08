@@ -7,6 +7,7 @@ import { _electron as electron } from "playwright-core";
 import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -81,6 +82,28 @@ await win.click('[data-tab="replay"]');
 check((await win.locator("#fields details.accordion[open]").count()) === 0 && (await win.locator("#fields details.accordion").count()) === 2, "Faults and Advanced are accordions that start closed");
 check((await win.evaluate(() => getComputedStyle(document.getElementById("runbar")).position)) === "sticky", "the preset and Start bar is sticky");
 if (shotDir) await win.screenshot({ path: path.join(shotDir, "desktop-replay.png") });
+
+// Item: send to a service of your own (here a throwaway server on this computer).
+{
+  const seen = [];
+  const own = http.createServer((req, res) => { req.resume(); req.on("end", () => { seen.push({ url: req.url, key: req.headers["x-api-key"], token: req.headers["x-signallab-token"] }); res.writeHead(200); res.end("{}"); }); });
+  await new Promise((r) => own.listen(0, "127.0.0.1", r));
+  await win.click('[data-tab="replay"]');
+  check(await win.isVisible("#destBox") && await win.isVisible("#dataBox"), "Replay offers 'Where to send' and 'Data to send'");
+  await win.check('#destBox input[value="own"]');
+  await win.fill("#tUrl", `http://127.0.0.1:${own.address().port}/ingest?key=SECRET`);
+  await win.fill("#tHeaders", "X-Api-Key: abc123");
+  await win.fill('#fields [name="duration_s"]', "20");
+  await win.click("#btnStart");
+  check(await until(async () => (await win.innerText("#runDoneText").catch(() => "")).includes("sent to http://127.0.0.1"), 30000), "a replay to your own service finishes and says where it went", await win.innerText("#runDoneText").catch(() => ""));
+  const own1 = await win.innerText("#rpStats");
+  check(seen.length > 0 && seen.every((r) => r.key === "abc123" && r.token === undefined && r.url === "/ingest?key=SECRET"), "your service gets the header and the address, and never the app's token", `${seen.length} requests`);
+  check(!own1.includes("SECRET") && !own1.includes("/ingest"), "the results show only the host, not the path or key");
+  check(!(await win.isVisible("#runDoneView")), "no 'View in Data' for readings sent elsewhere");
+  await win.check('#destBox input[value="builtin"]');
+  await new Promise((r) => own.close(r));
+  await win.fill('#fields [name="duration_s"]', "120"); // back to the default for the checks below
+}
 
 const first = await stored(win);
 check(first === 300, "events are stored in the embedded database", String(first));

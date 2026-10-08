@@ -10,10 +10,13 @@ import (
 	"math"
 	"math/rand/v2"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 const maxRetryAfter = 5 * time.Second
@@ -30,10 +33,22 @@ const (
 	maxLatencyLog       = 200_000 // bounds memory for very long runs
 )
 
-// Target is where batches are POSTed.
+// Target is where batches are POSTed. For the built-in service BaseURL and Headers (the app's
+// token) are used. For a service of the user's own the runner builds the target from the Config
+// itself and only takes UserAgent from here, so the app's token can never be sent to it.
 type Target struct {
-	BaseURL string            // e.g. http://127.0.0.1:8088
-	Headers map[string]string // e.g. the app's token header
+	BaseURL   string            // e.g. http://127.0.0.1:8088
+	Headers   map[string]string // e.g. the app's token header
+	UserAgent string            // sent to every service; optional
+}
+
+// ErrorSample is the first thing that went wrong, kept so the user can see why a run failed.
+// Message and Body are cleaned: no address, no query string, no header values.
+type ErrorSample struct {
+	Batch   int    `json:"batch"` // 1-based number of the batch (or request)
+	Status  int    `json:"status,omitempty"`
+	Message string `json:"message"`
+	Body    string `json:"body,omitempty"` // start of the response body, if any
 }
 
 // Snapshot is a point-in-time view of a run, safe to marshal.
@@ -58,6 +73,11 @@ type Snapshot struct {
 	Injected        *FaultCounts   `json:"injected,omitempty"`
 	Latency         map[string]any `json:"latency,omitempty"`
 	ThroughputPerS  float64        `json:"throughput_per_s"`
+	Target          string         `json:"target,omitempty"`        // where it was sent: the built-in service, or your address without its query string
+	External        bool           `json:"external"`                // sent to a service of your own
+	Source          string         `json:"source,omitempty"`        // generated data, or the imported file's name
+	StatusCounts    map[string]int `json:"status_counts,omitempty"` // responses by HTTP status
+	FirstError      *ErrorSample   `json:"first_error,omitempty"`
 }
 
 // Runner runs one replay at a time.
@@ -65,23 +85,55 @@ type Runner struct {
 	client *http.Client
 	now    func() time.Time
 
-	mu     sync.Mutex
-	snap   Snapshot
-	lat    []float64
-	cancel context.CancelFunc
-	done   chan struct{}
+	mu      sync.Mutex
+	snap    Snapshot
+	lat     []float64
+	cancel  context.CancelFunc
+	done    chan struct{}
+	dataset *Dataset
 }
 
-// NewRunner creates an idle runner.
+// NewRunner creates an idle runner. It never follows redirects: a redirect would resend the
+// headers (an API key) to another address and turn a POST into a GET, hiding the real answer.
 func NewRunner() *Runner {
-	return &Runner{client: &http.Client{}, now: time.Now, snap: Snapshot{State: StateIdle}}
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	return &Runner{client: client, now: time.Now, snap: Snapshot{State: StateIdle}}
+}
+
+// SetDataset makes d the imported file that runs with UseDataset replay. It is kept in memory only.
+func (r *Runner) SetDataset(d *Dataset) {
+	r.mu.Lock()
+	r.dataset = d
+	r.mu.Unlock()
+}
+
+// DatasetSummary describes the imported file, or nil when there is none.
+func (r *Runner) DatasetSummary() *DatasetSummary {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.dataset == nil {
+		return nil
+	}
+	s := r.dataset.Summary
+	return &s
 }
 
 // ErrBusy is returned by Start while a run is in progress.
 var ErrBusy = errors.New("a replay is already running")
 
-// Start validates cfg, generates and plans the dataset, then runs it in the background.
+// Start validates cfg, builds and plans the dataset, then runs it in the background.
 func (r *Runner) Start(cfg Config, target Target, maxBatch int) (Snapshot, error) {
+	external := cfg.External()
+	if external {
+		cfg.TargetURL = strings.TrimSpace(cfg.TargetURL)
+		if cfg.PayloadFormat == "" {
+			cfg.PayloadFormat = FormatBatch
+		}
+		if cfg.PayloadFormat == FormatSingle {
+			cfg.BatchSize = 1
+		}
+		maxBatch = MaxExternalBatch
+	}
 	if err := cfg.Validate(maxBatch); err != nil {
 		return Snapshot{}, err
 	}
@@ -90,15 +142,34 @@ func (r *Runner) Start(cfg Config, target Target, maxBatch int) (Snapshot, error
 		r.mu.Unlock()
 		return Snapshot{}, ErrBusy
 	}
+	ds := r.dataset
 	r.mu.Unlock()
 
 	now := r.now()
-	records, err := Generate(cfg, now)
-	if err != nil {
+	var (
+		records []Record
+		source  = "generated data"
+		err     error
+	)
+	if cfg.UseDataset {
+		if ds == nil {
+			return Snapshot{}, errors.New("no file has been imported; import one first or turn off \"use my own file\"")
+		}
+		records, source = ds.Records, "file "+ds.Summary.Name
+		if cfg.RebaseTime {
+			records = ds.Rebased(now)
+		}
+	} else if records, err = Generate(cfg, now); err != nil {
 		return Snapshot{}, err
 	}
 	planned, injected := PlanRecords(records, cfg)
 	batches, schedule := Schedule(planned, cfg)
+
+	label := "the built-in service"
+	if external {
+		target = Target{BaseURL: "", Headers: cfg.TargetHeaders, UserAgent: target.UserAgent}
+		label = DisplayURL(cfg.TargetURL)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	r.mu.Lock()
@@ -107,10 +178,11 @@ func (r *Runner) Start(cfg Config, target Target, maxBatch int) (Snapshot, error
 		cancel()
 		return Snapshot{}, ErrBusy
 	}
-	c := cfg
+	c := cfg.Redacted()
 	started := now.UTC()
 	r.snap = Snapshot{State: StateRunning, Config: &c, StartedAt: &started, Planned: len(planned), Batches: len(batches),
-		Injected: &injected, RejectionCounts: map[string]int{}}
+		Injected: &injected, RejectionCounts: map[string]int{}, StatusCounts: map[string]int{},
+		Target: label, External: external, Source: source}
 	r.lat = r.lat[:0]
 	r.cancel = cancel
 	r.done = make(chan struct{})
@@ -144,6 +216,13 @@ func (r *Runner) Snapshot() Snapshot {
 	s := r.snap
 	if s.RejectionCounts != nil {
 		s.RejectionCounts = cloneCounts(s.RejectionCounts)
+	}
+	if s.StatusCounts != nil {
+		s.StatusCounts = cloneCounts(s.StatusCounts)
+	}
+	if s.FirstError != nil {
+		e := *s.FirstError
+		s.FirstError = &e
 	}
 	if s.State == StateRunning && s.StartedAt != nil {
 		s.ElapsedS = r.now().Sub(*s.StartedAt).Seconds()
@@ -188,7 +267,7 @@ func (r *Runner) run(ctx context.Context, cfg Config, target Target, batches [][
 				if delay > 0 && !sleep(ctx, delay) {
 					return
 				}
-				r.sendBatch(ctx, target, cfg, batches[i])
+				r.sendBatch(ctx, target, cfg, batches[i], i, started)
 			}
 		}(w)
 	}
@@ -223,8 +302,54 @@ type ackBody struct {
 	RejectionCounts map[string]int `json:"rejection_counts"`
 }
 
-func (r *Runner) sendBatch(ctx context.Context, target Target, cfg Config, batch []Planned) {
+// parseAck reads the built-in service's acknowledgement. ok is false when the body is not one
+// (a service of your own answers in its own way).
+func parseAck(raw []byte) (ack ackBody, ok bool) {
+	var w struct {
+		Accepted        *int           `json:"accepted"`
+		Rejected        *int           `json:"rejected"`
+		RejectionCounts map[string]int `json:"rejection_counts"`
+	}
+	if json.Unmarshal(raw, &w) != nil || w.Accepted == nil {
+		return ackBody{}, false
+	}
+	ack.Accepted, ack.RejectionCounts = *w.Accepted, w.RejectionCounts
+	if w.Rejected != nil {
+		ack.Rejected = *w.Rejected
+	}
+	return ack, true
+}
+
+type reply struct {
+	status     int
+	raw        []byte
+	retryAfter time.Duration
+	err        error
+}
+
+// payload builds the request body for one batch in the chosen format and says its content type.
+func payload(format string, batch []Planned) ([]byte, string) {
 	var body bytes.Buffer
+	switch format {
+	case FormatArray:
+		body.WriteByte('[')
+		for i, p := range batch {
+			if i > 0 {
+				body.WriteByte(',')
+			}
+			body.Write(p.Body)
+		}
+		body.WriteByte(']')
+		return body.Bytes(), "application/json"
+	case FormatNDJSON:
+		for _, p := range batch {
+			body.Write(p.Body)
+			body.WriteByte('\n')
+		}
+		return body.Bytes(), "application/x-ndjson"
+	case FormatSingle:
+		return batch[0].Body, "application/json"
+	}
 	body.WriteString(`{"events":[`)
 	for i, p := range batch {
 		if i > 0 {
@@ -233,36 +358,58 @@ func (r *Runner) sendBatch(ctx context.Context, target Target, cfg Config, batch
 		body.Write(p.Body)
 	}
 	body.WriteString(`]}`)
-	payload := body.Bytes()
+	return body.Bytes(), "application/json"
+}
+
+func (r *Runner) sendBatch(ctx context.Context, target Target, cfg Config, batch []Planned, idx int, started time.Time) {
+	external := cfg.External()
+	body, ctype := payload(cfg.PayloadFormat, batch)
+	reqID := fmt.Sprintf("sl-%d-%d", started.Unix(), idx+1)
 
 	timeout := time.Duration(cfg.TimeoutS * float64(time.Second))
 	for attempt := 0; ; attempt++ {
 		t0 := time.Now()
-		status, ack, retryAfter, err := r.post(ctx, target, payload, timeout)
+		rep := r.post(ctx, cfg, target, body, ctype, reqID, timeout)
 		elapsed := time.Since(t0).Seconds()
+		ack, isAck := parseAck(rep.raw)
 
 		r.mu.Lock()
 		if len(r.lat) < maxLatencyLog {
 			r.lat = append(r.lat, elapsed)
 		}
-		switch {
-		case ctx.Err() != nil:
+		if ctx.Err() != nil {
 			r.mu.Unlock()
 			return
-		case err != nil || (status != http.StatusAccepted && status != http.StatusTooManyRequests && status != http.StatusServiceUnavailable):
+		}
+		if rep.err == nil {
+			r.snap.StatusCounts[strconv.Itoa(rep.status)]++
+		}
+		success := rep.status == http.StatusAccepted
+		if external {
+			success = rep.status >= 200 && rep.status < 300
+		}
+		retryable := rep.status == http.StatusTooManyRequests || rep.status == http.StatusServiceUnavailable
+		switch {
+		case rep.err != nil || (!success && !retryable):
 			r.snap.RequestErrors++
 			r.snap.ErroredRecords += len(batch)
+			r.noteError(idx, rep)
 			r.finishBatch(len(batch))
 			r.mu.Unlock()
 			return
-		case status == http.StatusAccepted:
-			r.recordAck(ack)
+		case success:
+			if external && !(isAck && ack.Accepted+ack.Rejected == len(batch)) {
+				// A service of your own: any 2xx means every record in the request was taken.
+				r.snap.Accepted += len(batch)
+			} else {
+				r.recordAck(ack)
+			}
 			r.finishBatch(len(batch))
 			r.mu.Unlock()
 			return
 		}
 		// 429 or 503: the whole batch of valid records was refused.
-		if status == http.StatusTooManyRequests {
+		if rep.status == http.StatusTooManyRequests {
 			r.snap.Throttled++
 		}
 		if attempt >= cfg.Retries {
@@ -274,10 +421,62 @@ func (r *Runner) sendBatch(ctx context.Context, target Target, cfg Config, batch
 		}
 		r.snap.Retries++
 		r.mu.Unlock()
-		if !sleep(ctx, retryAfter) {
+		if !sleep(ctx, rep.retryAfter) {
 			return
 		}
 	}
+}
+
+// noteError remembers the first failure with text that is safe to show.
+func (r *Runner) noteError(idx int, rep reply) {
+	if r.snap.FirstError != nil {
+		return
+	}
+	e := &ErrorSample{Batch: idx + 1}
+	if rep.err != nil {
+		e.Message = transportError(rep.err)
+	} else {
+		e.Status = rep.status
+		e.Message = fmt.Sprintf("the service answered %d %s", rep.status, http.StatusText(rep.status))
+		e.Body = excerpt(rep.raw, 300)
+	}
+	r.snap.FirstError = e
+}
+
+// transportError describes a failed request without the address: Go's errors repeat the whole
+// URL, and the query string may hold a key.
+func transportError(err error) string {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		err = ue.Err
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "no answer before the timeout"
+	}
+	return excerpt([]byte(err.Error()), 200)
+}
+
+// excerpt returns the start of b as one line of plain text, at most n bytes.
+func excerpt(b []byte, n int) string {
+	if len(b) == 0 {
+		return ""
+	}
+	cut := len(b) > n
+	if cut {
+		b = b[:n]
+	}
+	s := strings.ToValidUTF8(string(b), "")
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || r == utf8.RuneError {
+			return ' '
+		}
+		return r
+	}, s)
+	s = strings.Join(strings.Fields(s), " ")
+	if cut {
+		s += "…"
+	}
+	return s
 }
 
 func (r *Runner) finishBatch(n int) {
@@ -297,33 +496,43 @@ func (r *Runner) recordRejections(a ackBody) {
 	}
 }
 
-func (r *Runner) post(ctx context.Context, target Target, payload []byte, timeout time.Duration) (int, ackBody, time.Duration, error) {
+func (r *Runner) post(ctx context.Context, cfg Config, target Target, body []byte, ctype, reqID string, timeout time.Duration) reply {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.BaseURL+"/api/v1/events", bytes.NewReader(payload))
-	if err != nil {
-		return 0, ackBody{}, 0, err
+	endpoint := target.BaseURL + "/api/v1/events"
+	if cfg.External() {
+		endpoint = cfg.TargetURL
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return reply{err: err}
+	}
+	req.Header.Set("Content-Type", ctype)
+	req.Header.Set("X-Request-ID", reqID)
+	if target.UserAgent != "" {
+		req.Header.Set("User-Agent", target.UserAgent)
+	}
 	for k, v := range target.Headers {
 		req.Header.Set(k, v)
 	}
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return 0, ackBody{}, 0, err
+		return reply{err: err}
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	var ack ackBody
-	_ = json.Unmarshal(raw, &ack)
-	return resp.StatusCode, ack, parseRetryAfter(resp.Header.Get("Retry-After")), nil
+	return reply{status: resp.StatusCode, raw: raw, retryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))}
 }
 
 func parseRetryAfter(v string) time.Duration {
+	v = strings.TrimSpace(v)
 	if v != "" {
 		if secs, err := strconv.ParseFloat(v, 64); err == nil {
 			d := time.Duration(secs * float64(time.Second))
 			return min(max(d, 0), maxRetryAfter)
+		}
+		if t, err := http.ParseTime(v); err == nil {
+			return min(max(time.Until(t), 0), maxRetryAfter)
 		}
 	}
 	return time.Second
