@@ -46,6 +46,29 @@ jobs:
       - name: Build the Go engine for every architecture of this OS
         working-directory: desktop
         run: node scripts/build-go.js --os ${{ matrix.target }}
+      # TEMPORARY diagnostics for the silent electron-builder exit on Windows (remove once fixed).
+      - name: Diagnose electron-builder (bash)
+        if: matrix.target == 'win'
+        continue-on-error: true
+        working-directory: desktop
+        run: |
+          set +e
+          node --version; npm --version
+          echo "--- version via node"; node node_modules/electron-builder/cli.js --version; echo "exit=$?"
+          echo "--- shims"; ls -la node_modules/.bin | grep -i electron-builder
+          echo "--- direct run, debug on"
+          DEBUG='electron-builder*' node node_modules/electron-builder/cli.js --win --x64 --dir > ../eb-bash.log 2>&1; echo "exit=$?"
+          wc -c ../eb-bash.log; head -c 4000 ../eb-bash.log
+          echo "--- dist"; ls -la dist 2>&1 | head -20
+      - name: Diagnose electron-builder (PowerShell)
+        if: matrix.target == 'win'
+        continue-on-error: true
+        shell: pwsh
+        working-directory: desktop
+        run: |
+          node node_modules/electron-builder/cli.js --win --x64 --dir 2>&1 | Select-Object -First 40
+          "exit=$LASTEXITCODE"
+          Get-ChildItem dist -ErrorAction SilentlyContinue | Select-Object -First 20
       # On macOS the build is signed and notarized only if ALL of these repository secrets exist
       # (see "Signing and notarization" in desktop/README.md); otherwise it is an ad-hoc build.
       - name: Package
