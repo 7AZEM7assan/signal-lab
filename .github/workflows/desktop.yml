@@ -46,25 +46,6 @@ jobs:
       - name: Build the Go engine for every architecture of this OS
         working-directory: desktop
         run: node scripts/build-go.js --os ${{ matrix.target }}
-      # TEMPORARY diagnostics for the silent electron-builder exit on Windows (remove once fixed).
-      - name: Diagnose electron-builder argument variants
-        if: matrix.target == 'win'
-        continue-on-error: true
-        working-directory: desktop
-        run: |
-          set +e
-          run() {
-            echo; echo "=== $1"; rm -rf dist
-            shift
-            "$@" > ../eb-variant.log 2>&1; code=$?
-            echo "exit=$code bytes=$(wc -c < ../eb-variant.log) dist=$(ls dist 2>/dev/null | tr '\n' ' ')"
-            head -c 600 ../eb-variant.log
-          }
-          run "A: direct, --win --x64 --arm64 --dir" node node_modules/electron-builder/cli.js --win --x64 --arm64 --dir
-          run "B: direct, --win --x64 (all targets)" node node_modules/electron-builder/cli.js --win --x64
-          run "C: npm run, --win --x64 --dir" npm run package -- --win --x64 --dir
-          run "D: direct, --win --x64 --arm64 (CI command)" node node_modules/electron-builder/cli.js --win --x64 --arm64
-          rm -rf dist
       # On macOS the build is signed and notarized only if ALL of these repository secrets exist
       # (see "Signing and notarization" in desktop/README.md); otherwise it is an ad-hoc build.
       - name: Package
@@ -75,9 +56,10 @@ jobs:
           APPLE_ID: ${{ matrix.target == 'mac' && secrets.APPLE_ID || '' }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.target == 'mac' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ matrix.target == 'mac' && secrets.APPLE_TEAM_ID || '' }}
-        run: npm run package -- ${{ matrix.builder }}
-      # electron-builder once exited successfully on Windows without building anything; listing the
-      # output makes that visible here instead of at the upload step.
+        # Call electron-builder's script directly: started through npx or npm run, it exited without
+        # building anything under Git Bash on the Windows runner.
+        run: node node_modules/electron-builder/cli.js ${{ matrix.builder }}
+      # Shows what was built (an empty folder is then visible here, not only at the upload step).
       - name: List the packaged files
         working-directory: desktop
         run: ls -la dist
