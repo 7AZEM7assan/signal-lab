@@ -30,6 +30,8 @@ Non-goals (kept out on purpose): Kubernetes, authentication and multi-tenancy, c
 A native window around Signal Lab: run replays with fault controls, watch the live feed, browse and
 export stored data, edit settings and clear data, with no Docker, PostgreSQL or terminal.
 
+![A short tour of the desktop app: the quick demo, a test record sent to a service, and dark mode](docs/screenshots/app-demo.gif)
+
 ![Replay tab of the desktop app](docs/screenshots/app-replay.png)
 
 ![Live tab of the desktop app in dark mode](docs/screenshots/app-live-dark.png)
@@ -107,9 +109,12 @@ launch); the Linux and Windows commands have not been run on those systems.
 
 **Tested so far** (by the author): macOS on Apple silicon and Linux. On the Apple silicon Mac the
 0.2.0 release file was downloaded in a browser and checked against its published checksum, the
-first-launch warning was passed, and the quick demo, a replay to the toy receiver, a file
-import, quitting and reopening (the stored data was still there) were run. The Intel Mac and
-Windows builds are produced by this repository's CI but have not been run on a real machine yet.
+first-launch warning was passed, and the quick demo, a replay to the toy receiver, a file import,
+quitting and reopening (the stored data was still there) were run. The 0.2.1 macOS release file was
+then downloaded with the terminal command below, matched its published checksum, and passed the
+whole end-to-end test (window, replay to a service of your own, file import, data kept after a
+restart, no access token in the log). The Intel Mac and Windows builds are produced by this
+repository's CI but have not been run on a real machine yet.
 
 **Found a problem?** Please [open an issue](https://github.com/7AZEM7assan/signal-lab/issues/new/choose).
 It helps to say which system you use (for example macOS 15 on Apple silicon, or Windows 11), which
