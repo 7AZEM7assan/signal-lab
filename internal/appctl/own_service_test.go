@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -171,9 +172,8 @@ func TestImportedFileIsReplayedIntoTheBuiltInServiceAndCanBeRemoved(t *testing.T
 func TestBadFilesAreRefusedWithAReason(t *testing.T) {
 	a := newApp(t, "")
 	for name, tc := range map[string]struct{ body, want string }{
-		"empty":           {"", "empty"},
-		"missing columns": {"a,b\n1,2\n", "event_time"},
-		"not json":        {"{\"a\":1}\nnope\n", "line 2"},
+		"empty":    {"", "empty"},
+		"not json": {"{\"a\":1}\nnope\n", "line 2"},
 	} {
 		code, raw := a.putRaw("/app/api/replay/dataset", "text/plain", []byte(tc.body))
 		if code != 400 || !strings.Contains(string(raw), tc.want) || !strings.Contains(string(raw), "invalid_dataset") {
@@ -204,4 +204,85 @@ func pad2(n int) string {
 		return "0" + string(rune('0'+n))
 	}
 	return string(rune('0'+n/10)) + string(rune('0'+n%10))
+}
+
+// A file whose columns are not recognised is not "invalid": the reply lists its columns so the panel can ask
+// which one is which, and importing again with that choice works.
+func TestFileWithOtherColumnNamesCanBeMapped(t *testing.T) {
+	a := newApp(t, "")
+	csv := "Zeit,Maschine,Grad,Schwingung\n2025-01-15T08:00:00Z,press-01,61.5,2.1\n2025-01-15T08:00:02Z,press-01,62,2.2\n"
+	code, raw := a.putRaw("/app/api/replay/dataset?name=werk.csv", "text/csv", []byte(csv))
+	var need struct {
+		Error struct {
+			Code    string   `json:"code"`
+			Missing []string `json:"missing"`
+			Columns []string `json:"columns"`
+			Fields  []string `json:"fields"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &need); err != nil || code != 400 || need.Error.Code != "needs_mapping" {
+		t.Fatalf("unrecognised columns: %d %s", code, raw)
+	}
+	if len(need.Error.Missing) != 4 || len(need.Error.Columns) != 4 || len(need.Error.Fields) == 0 {
+		t.Fatalf("the reply must list the missing fields, the file's columns and the schema fields: %s", raw)
+	}
+	var st struct {
+		Dataset *struct{} `json:"dataset"`
+	}
+	a.json("GET", "/app/api/state", nil, &st)
+	if st.Dataset != nil {
+		t.Fatal("a file that needs mapping must not be imported yet")
+	}
+
+	choice := `{"Zeit":"event_time","Maschine":"device_id","Grad":"temperature_c","Schwingung":"vibration_mm_s"}`
+	code, raw = a.putRaw("/app/api/replay/dataset?name=werk.csv&map="+url.QueryEscape(choice), "text/csv", []byte(csv))
+	var ok struct {
+		Dataset struct {
+			Rows   int               `json:"rows"`
+			Mapped map[string]string `json:"mapped"`
+			Fields map[string]string `json:"fields"`
+		} `json:"dataset"`
+	}
+	if err := json.Unmarshal(raw, &ok); err != nil || code != 200 || ok.Dataset.Rows != 2 {
+		t.Fatalf("with the user's choice: %d %s", code, raw)
+	}
+	if ok.Dataset.Fields["temperature_c"] != "Grad" || ok.Dataset.Mapped["Zeit"] != "event_time" {
+		t.Fatalf("the summary must say which column feeds which field: %s", raw)
+	}
+	for name, bad := range map[string]string{
+		"unknown column": `{"Nope":"event_time"}`,
+		"unknown field":  `{"Zeit":"colour"}`,
+		"two for one":    `{"Zeit":"event_time","Maschine":"event_time"}`,
+		"not an object":  `[1]`,
+	} {
+		code, raw = a.putRaw("/app/api/replay/dataset?map="+url.QueryEscape(bad), "text/csv", []byte(csv))
+		if code != 400 || !strings.Contains(string(raw), "invalid_dataset") {
+			t.Errorf("%s: %d %s", name, code, raw)
+		}
+	}
+}
+
+// The panel's address changes on every launch, so its preferences are kept by the engine in the data folder.
+func TestInterfacePreferencesPersistInTheDataFolder(t *testing.T) {
+	a := newApp(t, "")
+	var out struct {
+		Prefs Prefs `json:"prefs"`
+	}
+	if c := a.json("GET", "/app/api/prefs", nil, &out); c != 200 || out.Prefs.Theme != "auto" || out.Prefs.WelcomeSeen {
+		t.Fatalf("defaults: %d %+v", c, out)
+	}
+	if c := a.json("PUT", "/app/api/prefs", map[string]any{"theme": "dark"}, &out); c != 200 || out.Prefs.Theme != "dark" {
+		t.Fatalf("set theme: %d %+v", c, out)
+	}
+	if c := a.json("PUT", "/app/api/prefs", map[string]any{"welcome_seen": true}, &out); c != 200 || out.Prefs.Theme != "dark" || !out.Prefs.WelcomeSeen {
+		t.Fatalf("a change must keep the other value: %d %+v", c, out)
+	}
+	if got := LoadPrefs(a.dir); got.Theme != "dark" || !got.WelcomeSeen {
+		t.Fatalf("not on disk: %+v", got)
+	}
+	for name, body := range map[string]any{"bad theme": map[string]any{"theme": "purple"}, "unknown field": map[string]any{"colour": "red"}} {
+		if c := a.json("PUT", "/app/api/prefs", body, nil); c != 400 {
+			t.Errorf("%s: %d", name, c)
+		}
+	}
 }

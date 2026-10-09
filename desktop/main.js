@@ -7,7 +7,7 @@
 // queued events reach the database before the app exits. If the service cannot start, it shows
 // an error screen with the reason instead of an empty window.
 
-const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, screen, session, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -158,15 +158,41 @@ function isOurs(url) {
   try { return !!engine && new URL(url).origin === engine.origin; } catch { return false; }
 }
 
+// The window's size and position are remembered between launches (a small file in the app folder).
+// A saved position is only used when it is still on a connected screen.
+const stateFile = () => path.join(app.getPath("userData"), "window-state.json");
+function loadWindowState() {
+  try {
+    const st = JSON.parse(fs.readFileSync(stateFile(), "utf8"));
+    const num = (v) => Number.isFinite(v) ? Math.round(v) : null;
+    const b = { width: num(st.width), height: num(st.height), x: num(st.x), y: num(st.y) };
+    if (b.width == null || b.height == null || b.width < 820 || b.height < 560 || b.width > 10000 || b.height > 10000) return null;
+    const onScreen = b.x != null && b.y != null && screen.getAllDisplays().some((d) => {
+      const a = d.workArea;
+      return b.x + 100 < a.x + a.width && b.x + b.width - 100 > a.x && b.y + 40 < a.y + a.height && b.y > a.y - 40;
+    });
+    return { ...b, ...(onScreen ? {} : { x: undefined, y: undefined }), maximized: st.maximized === true };
+  } catch { return null; }
+}
+function saveWindowState(win) {
+  if (!win || win.isDestroyed() || win.isMinimized() || win.isFullScreen()) return;
+  try { fs.writeFileSync(stateFile(), JSON.stringify({ ...win.getNormalBounds(), maximized: win.isMaximized() })); } catch { /* not remembered */ }
+}
+
 function createWindow() {
+  const saved = loadWindowState();
   mainWindow = new BrowserWindow({
-    width: 1180, height: 820, minWidth: 820, minHeight: 560, title: "Signal Lab", show: false,
+    width: saved?.width ?? 1180, height: saved?.height ?? 820, x: saved?.x, y: saved?.y, minWidth: 820, minHeight: 560, title: "Signal Lab", show: false,
     // On a Mac the title bar is hidden and the traffic lights sit over the sidebar, like Finder and Notes.
     ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 18, y: 18 } } : {}),
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, sandbox: true,
       spellcheck: false },
   });
-  mainWindow.once("ready-to-show", () => mainWindow.show());
+  mainWindow.once("ready-to-show", () => { if (saved?.maximized) mainWindow.maximize(); mainWindow.show(); });
+  let saveTimer = null;
+  const later = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => saveWindowState(mainWindow), 400); };
+  mainWindow.on("resize", later); mainWindow.on("move", later);
+  mainWindow.on("close", () => { clearTimeout(saveTimer); saveWindowState(mainWindow); });
   mainWindow.on("closed", () => { mainWindow = null; });
   // The panel never navigates away or opens windows; anything else is refused.
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -267,6 +293,8 @@ function buildMenu() {
     { role: "windowMenu" },
     { label: "Help", submenu: [
       { label: "Project page", click: () => shell.openExternal(PROJECT_URL) },
+      // Opens the releases page in your browser; the app itself makes no network request to look for updates.
+      { label: `Check for updates… (this is version ${app.getVersion()})`, click: () => shell.openExternal(PROJECT_URL + "/releases/latest") },
       { label: "Show log file", click: () => shell.showItemInFolder(logPath()) },
     ] },
   ];

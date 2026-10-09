@@ -32,6 +32,7 @@ type DatasetSummary struct {
 	Devices    int               `json:"devices"`
 	Columns    []string          `json:"columns"`           // as written in the file
 	Mapped     map[string]string `json:"mapped,omitempty"`  // file column -> Signal Lab field, when the names differ
+	Fields     map[string]string `json:"fields,omitempty"`  // Signal Lab field -> the file column that feeds it (for changing the mapping)
 	Ignored    []string          `json:"ignored,omitempty"` // columns that are not part of the schema and are not sent
 	FirstTime  string            `json:"first_time,omitempty"`
 	LastTime   string            `json:"last_time,omitempty"`
@@ -51,6 +52,9 @@ const (
 
 // Fields of the Signal Lab event schema that a file may provide.
 var schemaFields = []string{"schema_version", "event_id", "device_id", "event_time", "sequence", "temperature_c", "vibration_mm_s", "site_id"}
+
+// SchemaFields lists the event fields a file's columns can feed, in schema order.
+func SchemaFields() []string { return append([]string(nil), schemaFields...) }
 
 // Column names people commonly use, mapped to the schema field. Matching ignores case and treats
 // spaces and dashes as underscores. Values are sent exactly as they are in the file: the app does
@@ -76,15 +80,69 @@ func normalizeColumn(s string) string {
 }
 
 // columnMap decides, for each column of a file, which schema field it feeds (or "" to ignore it).
-// A column with the exact schema name always beats an alias for the same field.
+// Columns the user chose explicitly win; for the rest, a column with the exact schema name beats an
+// alias for the same field.
 type columnMap struct {
 	field   []string          // per column, "" = ignored
-	mapped  map[string]string // original name -> field, for aliases only
+	mapped  map[string]string // original name -> field, when the name differs from the field
 	ignored []string
 }
 
+func isSchemaField(f string) bool {
+	for _, sf := range schemaFields {
+		if f == sf {
+			return true
+		}
+	}
+	return false
+}
+
+// mapColumns maps the columns automatically.
 func mapColumns(names []string) columnMap {
+	cm, _ := mapColumnsWith(names, nil)
+	return cm
+}
+
+// mapColumnsWith maps the columns, applying the user's explicit choices first. override maps a column
+// name as written in the file to a Signal Lab field, or to "" to ignore the column.
+func mapColumnsWith(names []string, override map[string]string) (columnMap, error) {
 	cm := columnMap{field: make([]string, len(names)), mapped: map[string]string{}}
+	index := map[string]int{}
+	for i, n := range names {
+		if _, dup := index[strings.TrimSpace(n)]; !dup {
+			index[strings.TrimSpace(n)] = i
+		}
+	}
+	taken := map[string]bool{}
+	decided := make([]bool, len(names))
+	cols := make([]string, 0, len(override))
+	for col := range override {
+		cols = append(cols, col)
+	}
+	sort.Strings(cols)
+	for _, col := range cols {
+		f := override[col]
+		i, ok := index[strings.TrimSpace(col)]
+		if !ok {
+			return cm, fmt.Errorf("the file has no column named %q", col)
+		}
+		if f != "" && !isSchemaField(f) {
+			return cm, fmt.Errorf("%q is not a Signal Lab field", f)
+		}
+		if f != "" && taken[f] {
+			return cm, fmt.Errorf("two columns are mapped to %s; choose one column for each field", f)
+		}
+		decided[i] = true
+		if f == "" {
+			cm.ignored = append(cm.ignored, strings.TrimSpace(col))
+			continue
+		}
+		taken[f] = true
+		cm.field[i] = f
+		if normalizeColumn(col) != f {
+			cm.mapped[strings.TrimSpace(col)] = f
+		}
+	}
 	exact := map[string]bool{}
 	for _, n := range names {
 		c := normalizeColumn(n)
@@ -94,8 +152,10 @@ func mapColumns(names []string) columnMap {
 			}
 		}
 	}
-	taken := map[string]bool{}
 	for i, n := range names {
+		if decided[i] {
+			continue
+		}
 		c := normalizeColumn(n)
 		f := ""
 		for _, sf := range schemaFields {
@@ -111,6 +171,7 @@ func mapColumns(names []string) columnMap {
 		}
 		if f != "" && taken[f] {
 			f = "" // a second column for the same field: the first one wins
+			delete(cm.mapped, strings.TrimSpace(n))
 		}
 		if f == "" {
 			cm.ignored = append(cm.ignored, strings.TrimSpace(n))
@@ -122,16 +183,32 @@ func mapColumns(names []string) columnMap {
 	if len(cm.mapped) == 0 {
 		cm.mapped = nil
 	}
-	return cm
+	return cm, nil
 }
 
 var requiredFields = []string{"event_time", "device_id", "temperature_c", "vibration_mm_s"}
 
-func (cm columnMap) check(format string) error {
+// NeedsMapping is returned when a file has no column for some required fields. The caller can show the
+// file's columns and let the user say which one is which, then import again with that choice.
+type NeedsMapping struct {
+	Missing []string          // required fields without a column
+	Columns []string          // the file's columns, as written
+	Found   map[string]string // field -> column, for what was found automatically
+}
+
+func (e *NeedsMapping) Error() string {
+	return fmt.Sprintf("the file has no column for %s (it needs event_time, device_id, temperature_c and vibration_mm_s; common alternatives such as timestamp, device, temp and vibration are accepted)", strings.Join(e.Missing, ", "))
+}
+
+func (cm columnMap) check(names []string) error {
 	have := map[string]bool{}
-	for _, f := range cm.field {
+	found := map[string]string{}
+	for i, f := range cm.field {
 		if f != "" {
 			have[f] = true
+			if i < len(names) {
+				found[f] = names[i]
+			}
 		}
 	}
 	var missing []string
@@ -141,7 +218,7 @@ func (cm columnMap) check(format string) error {
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("the file has no column for %s (it needs event_time, device_id, temperature_c and vibration_mm_s; common alternatives such as timestamp, device, temp and vibration are accepted)", strings.Join(missing, ", "))
+		return &NeedsMapping{Missing: missing, Columns: names, Found: found}
 	}
 	return nil
 }
@@ -150,6 +227,13 @@ func (cm columnMap) check(format string) error {
 // character: [ is a JSON array, { is NDJSON, anything else is CSV. lim and now are used only to
 // count the rows the Signal Lab schema would reject.
 func ParseDataset(name string, data []byte, lim event.Limits, now time.Time) (*Dataset, error) {
+	return ParseDatasetMapped(name, data, lim, now, nil)
+}
+
+// ParseDatasetMapped is ParseDataset with the user's own choice of columns: override maps a column name
+// as written in the file to a Signal Lab field (or "" to ignore it). Columns not mentioned are matched
+// automatically. When required fields have no column the error is a *NeedsMapping.
+func ParseDatasetMapped(name string, data []byte, lim event.Limits, now time.Time, override map[string]string) (*Dataset, error) {
 	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 	trimmed := bytes.TrimLeft(data, " \t\r\n")
 	if len(trimmed) == 0 {
@@ -171,7 +255,7 @@ func ParseDataset(name string, data []byte, lim event.Limits, now time.Time) (*D
 		rows, cols, err = readNDJSON(trimmed)
 	default:
 		format = "csv"
-		rows, cols, columns, err = readCSV(data)
+		rows, cols, columns, err = readCSV(data, override)
 	}
 	if err != nil {
 		return nil, err
@@ -183,13 +267,23 @@ func ParseDataset(name string, data []byte, lim event.Limits, now time.Time) (*D
 		return nil, fmt.Errorf("the file has more than %d rows; split it and import part of it", MaxDatasetRows)
 	}
 	if format != "csv" {
-		columns = mapColumns(cols)
+		columns, err = mapColumnsWith(cols, override)
+		if err != nil {
+			return nil, err
+		}
 	}
-	if err := columns.check(format); err != nil {
+	if err := columns.check(cols); err != nil {
 		return nil, err
 	}
 
 	d := &Dataset{Summary: DatasetSummary{Name: name, Format: format, Rows: len(rows), Columns: cols, Mapped: columns.mapped, Ignored: columns.ignored, ImportedAt: now.UTC()}}
+	fields := map[string]string{}
+	for i, f := range columns.field {
+		if f != "" {
+			fields[f] = cols[i]
+		}
+	}
+	d.Summary.Fields = fields
 	haveID := false
 	for _, f := range columns.field {
 		if f == "event_id" {
@@ -346,7 +440,7 @@ func (c *columnSet) add(row map[string]any) {
 	}
 }
 
-func readCSV(data []byte) ([]map[string]any, []string, columnMap, error) {
+func readCSV(data []byte, override map[string]string) ([]map[string]any, []string, columnMap, error) {
 	r := csv.NewReader(bytes.NewReader(data))
 	r.FieldsPerRecord = -1
 	r.TrimLeadingSpace = true
@@ -359,8 +453,11 @@ func readCSV(data []byte) ([]map[string]any, []string, columnMap, error) {
 	for i := range names {
 		names[i] = strings.TrimSpace(strings.TrimPrefix(names[i], "\ufeff"))
 	}
-	cm := mapColumns(names)
-	if err := cm.check("csv"); err != nil {
+	cm, err := mapColumnsWith(names, override)
+	if err != nil {
+		return nil, nil, cm, err
+	}
+	if err := cm.check(names); err != nil {
 		return nil, nil, cm, err
 	}
 	var rows []map[string]any

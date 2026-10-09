@@ -54,6 +54,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /app/api/replay/dataset", s.handleDatasetGet)
 	mux.HandleFunc("PUT /app/api/replay/dataset", s.handleDatasetPut)
 	mux.HandleFunc("DELETE /app/api/replay/dataset", s.handleDatasetDelete)
+	mux.HandleFunc("GET /app/api/prefs", s.handlePrefsGet)
+	mux.HandleFunc("PUT /app/api/prefs", s.handlePrefsPut)
 	mux.HandleFunc("GET /app/api/settings", s.handleSettingsGet)
 	mux.HandleFunc("PUT /app/api/settings", s.handleSettingsPut)
 	mux.HandleFunc("POST /app/api/settings/reset", s.handleSettingsReset)
@@ -248,8 +250,24 @@ func (s *Server) handleDatasetPut(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid_dataset", "could not read the file: "+err.Error())
 		return
 	}
-	ds, err := lab.ParseDataset(cleanFileName(r.URL.Query().Get("name")), raw, s.Engine.Limits(), time.Now())
+	var choice map[string]string // the user's own column choices, as {"file column": "schema field"}
+	if m := r.URL.Query().Get("map"); m != "" {
+		if len(m) > 8<<10 || json.Unmarshal([]byte(m), &choice) != nil {
+			writeErr(w, http.StatusBadRequest, "invalid_dataset", "the column choices are not valid")
+			return
+		}
+	}
+	ds, err := lab.ParseDatasetMapped(cleanFileName(r.URL.Query().Get("name")), raw, s.Engine.Limits(), time.Now(), choice)
 	if err != nil {
+		var need *lab.NeedsMapping
+		if errors.As(err, &need) {
+			// Not a failure of the file: it just needs to be told which column is which.
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]any{
+				"code": "needs_mapping", "message": err.Error(),
+				"missing": need.Missing, "columns": need.Columns, "found": need.Found, "fields": lab.SchemaFields(),
+			}})
+			return
+		}
 		writeErr(w, http.StatusBadRequest, "invalid_dataset", err.Error())
 		return
 	}
@@ -569,4 +587,35 @@ func ListenLoopback(addr string) (net.Listener, error) {
 		return nil, fmt.Errorf("cannot listen on %s: %w", addr, err)
 	}
 	return ln, nil
+}
+
+func (s *Server) handlePrefsGet(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"prefs": LoadPrefs(s.DataDir)})
+}
+
+// handlePrefsPut changes the interface preferences; omitted fields keep their value.
+func (s *Server) handlePrefsPut(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Theme       *string `json:"theme"`
+		WelcomeSeen *bool   `json:"welcome_seen"`
+	}
+	if !decodeStrict(w, r, &in) {
+		return
+	}
+	p := LoadPrefs(s.DataDir)
+	if in.Theme != nil {
+		if !validTheme(*in.Theme) {
+			writeErr(w, http.StatusBadRequest, "invalid_prefs", "theme must be auto, light or dark")
+			return
+		}
+		p.Theme = *in.Theme
+	}
+	if in.WelcomeSeen != nil {
+		p.WelcomeSeen = *in.WelcomeSeen
+	}
+	if err := SavePrefs(s.DataDir, p); err != nil {
+		writeErr(w, http.StatusInternalServerError, "prefs_not_saved", "could not save the preference: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"prefs": p})
 }

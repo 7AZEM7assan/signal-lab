@@ -33,7 +33,7 @@ make desktop-dist          # installer / app for THIS operating system in deskto
 
 | What | Where |
 |---|---|
-| Events, alerts, settings | the **data folder**: `<app folder>/data/` (see below), one `signallab.db` plus `settings.json` |
+| Events, alerts, settings | the **data folder**: `<app folder>/data/` (see below), one `signallab.db` plus `settings.json` and `ui-prefs.json` (the appearance choice and whether the welcome was dismissed) |
 | Log | `<app folder>/logs/signal-lab.log` |
 
 `<app folder>` is `~/Library/Application Support/Signal Lab` on macOS, `%APPDATA%\Signal Lab` on
@@ -59,6 +59,8 @@ except a replay that you aim at a service of your own (see below).
   artificial worker delay (these rebuild the ingest engine; queued events are saved first).
 - **Storage**: what is stored, database size and location, and "Delete all data" behind a typed
   confirmation.
+- **Window**: the size and position are remembered between launches. **Help > Check for updates…** opens the
+  releases page in your browser; the app itself never contacts GitHub.
 - **Shortcuts**: Command+1 to 5 (Ctrl+1 to 5 on Windows and Linux) switch between Live, Replay, Data,
   Settings and Storage.
 - **Appearance**: light, dark or follow the system, chosen at the bottom of the sidebar. On a Mac the

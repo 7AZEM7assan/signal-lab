@@ -2,6 +2,7 @@ package lab
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -214,5 +215,55 @@ func TestTooManyRowsIsRefusedWithAHint(t *testing.T) {
 	_, err := ParseDataset("big.csv", []byte(b.String()), limits, fixedNow)
 	if err == nil || !strings.Contains(err.Error(), "split it") {
 		t.Fatalf("a file over the row limit should be refused with advice: %v", err)
+	}
+}
+
+func TestColumnsInAnotherLanguageNeedMappingAndThenWork(t *testing.T) {
+	csv := "Zeit,Maschine,Grad,Schwingung,Notiz\n2025-01-15T08:00:00Z,press-01,61.5,2.1,x\n2025-01-15T08:00:02Z,press-01,62,2.2,y\n"
+	_, err := ParseDataset("werk.csv", []byte(csv), limits, fixedNow)
+	var need *NeedsMapping
+	if !errors.As(err, &need) || len(need.Missing) != 4 || len(need.Columns) != 5 {
+		t.Fatalf("expected a NeedsMapping listing 4 missing fields and 5 columns, got %v", err)
+	}
+	d, err := ParseDatasetMapped("werk.csv", []byte(csv), limits, fixedNow, map[string]string{
+		"Zeit": "event_time", "Maschine": "device_id", "Grad": "temperature_c", "Schwingung": "vibration_mm_s", "Notiz": "",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(d.Records[0])
+	want := `{"device_id":"press-01","event_id":"press-01-1","event_time":"2025-01-15T08:00:00Z","schema_version":1,"temperature_c":61.5,"vibration_mm_s":2.1}`
+	if string(raw) != want {
+		t.Fatalf("numbers must be typed by the chosen field:\n got %s\nwant %s", raw, want)
+	}
+	s := d.Summary
+	if s.Fields["temperature_c"] != "Grad" || s.Mapped["Zeit"] != "event_time" || len(s.Ignored) != 1 || s.Ignored[0] != "Notiz" || len(s.Problems) != 0 {
+		t.Fatalf("summary: %+v", s)
+	}
+}
+
+func TestExplicitChoiceBeatsAnAliasAndIsCheckedForMistakes(t *testing.T) {
+	// Both "timestamp" (an alias) and "Zeit" exist; the user says Zeit is the time.
+	csv := "timestamp,Zeit,device,temp,vibration\n1,2025-01-15T08:00:00Z,a,1,1\n"
+	d, err := ParseDatasetMapped("x.csv", []byte(csv), limits, fixedNow, map[string]string{"Zeit": "event_time"})
+	if err != nil || d.Summary.Fields["event_time"] != "Zeit" {
+		t.Fatalf("the explicit choice must win over the alias: %v %+v", err, d)
+	}
+	for name, ov := range map[string]map[string]string{
+		"unknown column":   {"Nope": "event_time"},
+		"unknown field":    {"Zeit": "colour"},
+		"same field twice": {"Zeit": "event_time", "device": "event_time"},
+	} {
+		if _, err := ParseDatasetMapped("x.csv", []byte(csv), limits, fixedNow, ov); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+	// JSON files can be mapped the same way.
+	js := `[{"t":"2025-01-15T08:00:00Z","m":"a","g":1.5,"v":2}]`
+	if _, err := ParseDataset("x.json", []byte(js), limits, fixedNow); err == nil {
+		t.Fatal("unrecognised JSON keys need mapping too")
+	}
+	if d, err := ParseDatasetMapped("x.json", []byte(js), limits, fixedNow, map[string]string{"t": "event_time", "m": "device_id", "g": "temperature_c", "v": "vibration_mm_s"}); err != nil || d.Summary.Rows != 1 {
+		t.Fatalf("json with a choice: %v", err)
 	}
 }

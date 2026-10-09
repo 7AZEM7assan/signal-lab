@@ -6,22 +6,26 @@ if (desktop) document.body.classList.add("in-desktop"); // the window's title ba
 // On a Mac the desktop window has no title bar (the traffic lights sit over the sidebar), so the page leaves room for them.
 if (desktop && /Macintosh/.test(navigator.userAgent)) document.documentElement.classList.add("mac-desktop");
 
-// ---------- appearance: follow the system, or force light or dark (remembered on this computer) ----------
-const THEME_KEY = "signalLabTheme";
+// ---------- appearance: follow the system, or force light or dark (kept by the engine, see /app/api/prefs) ----------
+// The panel's address changes on every launch, so the browser cannot remember a choice; the engine keeps it.
 function applyTheme(choice) {
   const forced = choice === "light" || choice === "dark";
   if (forced) document.documentElement.dataset.theme = choice; else delete document.documentElement.dataset.theme;
   for (const b of document.querySelectorAll("[data-theme-choice]")) b.setAttribute("aria-pressed", String(b.dataset.themeChoice === (forced ? choice : "auto")));
 }
-let savedTheme = "auto";
-try { savedTheme = localStorage.getItem(THEME_KEY) || "auto"; } catch { /* storage unavailable: follow the system */ }
-applyTheme(savedTheme);
 document.querySelector(".seg").addEventListener("click", (e) => {
   const b = e.target.closest("[data-theme-choice]");
   if (!b) return;
   applyTheme(b.dataset.themeChoice);
-  try { localStorage.setItem(THEME_KEY, b.dataset.themeChoice); } catch { /* not remembered */ }
+  api("PUT", "/app/api/prefs", { theme: b.dataset.themeChoice }).catch(() => { /* not remembered */ });
 });
+async function loadPrefs() {
+  try {
+    const { prefs } = await api("GET", "/app/api/prefs");
+    applyTheme(prefs.theme);
+    $("welcome").hidden = !!prefs.welcome_seen;
+  } catch { applyTheme("auto"); }
+}
 
 // ---------- plain-language help (one sentence each; the technical names stay visible) ----------
 const TIPS = {
@@ -506,6 +510,7 @@ function readTarget(withData = true) {
 function describeDataset(d) {
   const box = $("fileSummary"); box.replaceChildren();
   $("fRemove").hidden = !d;
+  $("fMap").hidden = !(d && lastFile);
   if (!d) return;
   box.append(el("div", { class: "head", text: `${fmtInt(d.rows)} rows from ${d.name} (${d.format.toUpperCase()}), ${fmtInt(d.devices)} device${d.devices === 1 ? "" : "s"}` }));
   const ul = el("ul");
@@ -520,15 +525,41 @@ function describeDataset(d) {
   li("Values are sent exactly as written in the file; units are not converted.");
   box.append(ul);
 }
-async function uploadDataset(file) {
+async function uploadDataset(file, choice) {
   if (file.size > replayLimits.dataset_bytes) throw new Error(`That file is larger than ${Math.round(replayLimits.dataset_bytes / 1048576)} MB.`);
   let res;
+  const query = "?name=" + encodeURIComponent(file.name) + (choice ? "&map=" + encodeURIComponent(JSON.stringify(choice)) : "");
   try {
-    res = await fetch("/app/api/replay/dataset?name=" + encodeURIComponent(file.name), { method: "PUT", headers: { "X-Requested-With": "signallab", "Content-Type": "application/octet-stream" }, body: file, cache: "no-store" });
+    res = await fetch("/app/api/replay/dataset" + query, { method: "PUT", headers: { "X-Requested-With": "signallab", "Content-Type": "application/octet-stream" }, body: file, cache: "no-store" });
   } catch (e) { banner("Cannot reach the Signal Lab service. Is the app still running?"); throw e; }
   let data = null; try { data = await res.json(); } catch { /* not JSON */ }
-  if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data?.error?.message || `HTTP ${res.status}`);
+    err.code = data?.error?.code; err.detail = data?.error;
+    throw err;
+  }
   return data.dataset;
+}
+
+// ---- which column is which: shown when a file's columns are not recognised, and from "Change columns" ----
+const MAP_FIELDS = [
+  ["event_time", "Time", true], ["device_id", "Machine or device", true], ["temperature_c", "Temperature (°C)", true], ["vibration_mm_s", "Vibration (mm/s)", true],
+  ["event_id", "Event id", false], ["sequence", "Sequence number", false], ["site_id", "Site", false],
+];
+let mapFile = null, mapColumnNames = [], lastFile = null; // lastFile: the file chosen in this window, kept in memory so the columns can be changed
+function showMapping(file, columns, found, intro) {
+  mapFile = file; mapColumnNames = columns;
+  const box = $("mapFields"); box.replaceChildren();
+  for (const [key, label, required] of MAP_FIELDS) {
+    const sel = el("select", { id: "map_" + key, name: key });
+    sel.append(el("option", { value: "", text: required ? "Choose a column…" : "(none)" }));
+    for (const c of columns) sel.append(el("option", { value: c, text: c }));
+    sel.value = found?.[key] && columns.includes(found[key]) ? found[key] : "";
+    box.append(el("label", { for: "map_" + key }, el("span", { text: label + (required ? "" : " (optional)") }), sel));
+  }
+  $("mapIntro").textContent = intro;
+  $("mapBox").hidden = false;
+  for (const [key, , required] of MAP_FIELDS) { if (required && !$("map_" + key).value) { $("map_" + key).focus(); break; } }
 }
 function initTarget() {
   for (const r of document.querySelectorAll('input[name="dest"], input[name="src"]')) r.addEventListener("change", syncTargetUi);
@@ -540,11 +571,38 @@ function initTarget() {
     $("fileSummary").textContent = "Reading the file…";
     try {
       dataset = await uploadDataset(f);
+      lastFile = f;
+      $("mapBox").hidden = true;
       document.querySelector('input[name="src"][value="file"]').checked = true;
-    } catch (e) { $("formError").textContent = e.message; }
+    } catch (e) {
+      if (e.code === "needs_mapping") showMapping(f, e.detail.columns, e.detail.found, `Signal Lab could not tell which columns of ${f.name} are which. Choose a column for each field; nothing is changed in your file.`);
+      else $("formError").textContent = e.message;
+    }
     describeDataset(dataset); // the previous file stays in place when the new one is refused
     $("fFile").value = "";
     syncTargetUi();
+  });
+  $("mapApply").addEventListener("click", async () => {
+    const choice = {}, used = new Set();
+    for (const [key, label, required] of MAP_FIELDS) {
+      const col = $("map_" + key).value;
+      if (!col) { if (required) { $("formError").textContent = `Choose a column for ${label}.`; $("map_" + key).focus(); return; } continue; }
+      if (used.has(col)) { $("formError").textContent = `The column "${col}" is chosen twice; each column can feed one field.`; return; }
+      used.add(col); choice[col] = key;
+    }
+    for (const c of mapColumnNames) if (!(c in choice)) choice[c] = ""; // columns that were not chosen are not sent
+    $("formError").textContent = "";
+    try {
+      dataset = await uploadDataset(mapFile, choice);
+      lastFile = mapFile;
+    } catch (e) { $("formError").textContent = e.message; return; }
+    $("mapBox").hidden = true;
+    document.querySelector('input[name="src"][value="file"]').checked = true;
+    describeDataset(dataset); syncTargetUi();
+  });
+  $("mapCancel").addEventListener("click", () => { $("mapBox").hidden = true; $("formError").textContent = ""; });
+  $("fMap").addEventListener("click", () => {
+    if (dataset && lastFile) showMapping(lastFile, dataset.columns, dataset.fields, "Choose which column feeds each field. Columns you do not choose are not sent.");
   });
   $("fRemove").addEventListener("click", async () => {
     try { await api("DELETE", "/app/api/replay/dataset"); } catch (e) { $("formError").textContent = e.message; return; }
@@ -879,8 +937,15 @@ if (desktop) {
   $("btnChooseFolder").addEventListener("click", () => desktop.chooseDataFolder());
 }
 
+// ---------- first run: a short welcome, shown until dismissed (the engine remembers it) ----------
+$("welcomeClose").addEventListener("click", () => {
+  $("welcome").hidden = true;
+  api("PUT", "/app/api/prefs", { welcome_seen: true }).catch(() => { /* shown again next time */ });
+});
+
 // ---------- boot ----------
 (async function boot() {
+  loadPrefs();
   showTab(location.hash.slice(1));
   const s = await refreshState().catch(() => null);
   initReplay(s?.replay_defaults || {});

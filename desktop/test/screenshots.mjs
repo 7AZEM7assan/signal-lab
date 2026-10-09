@@ -25,6 +25,7 @@ await win.waitForSelector("#fields input", { state: "attached", timeout: 30000 }
 const resize = (h) => app.evaluate(({ BrowserWindow }, height) => BrowserWindow.getAllWindows()[0].setContentSize(1180, height), h);
 const shot = async (name) => { await win.evaluate(() => window.scrollTo(0, 0)); await win.screenshot({ path: path.join(out, name) }); };
 
+await win.click("#welcomeClose"); // the first-run welcome is not part of the README pictures
 await win.click('[data-tab="replay"]');
 await win.click('#presets button:has-text("Fault storm")');
 await win.click("#btnStart");
