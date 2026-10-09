@@ -23,7 +23,7 @@ Non-goals (kept out on purpose): Kubernetes, authentication and multi-tenancy, c
 | **[Desktop app](#the-desktop-app)** | trying it, demos, managing runs from a window | nothing (download and open) | embedded SQLite |
 | **[Full stack](#quick-start-full-stack)** | the reference setup: NGINX, PostgreSQL, Prometheus | Docker, Python, make | PostgreSQL |
 | `make app` | the desktop engine in a browser, no Electron | Go | embedded SQLite |
-| [Recorded demo](#the-recorded-demo-no-docker-needed) | just looking | a browser | none |
+| [Recorded demo](#the-recorded-demo-no-docker-needed) ([open it](https://7azem7assan.github.io/signal-lab/)) | just looking | a browser | none |
 
 ## The desktop app
 
@@ -211,7 +211,7 @@ Captured from a seeded replay (seed 11, 5 devices, 200 events) with [`sim/tools/
 
 ### The recorded demo (no Docker needed)
 
-[`demo/index.html`](demo/index.html) is the same monitor, but it plays back a recording instead of connecting to the service, so you can see the project working without installing anything: serve the folder (`python3 -m http.server 8000`) and open <http://localhost:8000/demo/>. It also works on any static host; to publish it from your fork, enable GitHub Pages for the repository and open `/demo/`. A banner on the page says it is a recording. It has play/pause, speed and a scrubber.
+[`demo/index.html`](demo/index.html) is the same monitor, but it plays back a recording instead of connecting to the service, so you can see the project working without installing anything: serve the folder (`python3 -m http.server 8000`) and open <http://localhost:8000/demo/>. **A live copy is published at <https://7azem7assan.github.io/signal-lab/>**: open it in any browser, nothing to install. It also works on any static host; this repository publishes it with `.github/workflows/pages.yml` whenever the demo changes, and a fork can do the same by setting *Settings > Pages > Source* to *GitHub Actions*. A banner on the page says it is a recording. It has play/pause, speed and a scrubber.
 
 ![Demo page paused mid-replay](docs/screenshots/demo-desktop.png)
 
