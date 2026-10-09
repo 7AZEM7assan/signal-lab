@@ -3,26 +3,40 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>Signal Lab</title>
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
+<div class="app">
+<aside class="sidebar">
+  <div class="drag" aria-hidden="true"></div>
+  <div class="brand"><img class="logo" src="icon.svg" alt="" width="44" height="44"><div class="brand-text"><h1>Signal Lab</h1><span class="wordmark" aria-hidden="true">Signal Lab</span><span id="version" class="muted"></span></div></div>
+  <nav class="tabs" role="tablist" aria-label="Sections" aria-orientation="vertical">
+    <button role="tab" data-tab="live" aria-selected="true"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l2.5-6 4 12 2.5-6H21"/></svg><span>Live</span></button>
+    <button role="tab" data-tab="replay" aria-selected="false"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M10 8.6v6.8l5.6-3.4z"/></svg><span>Replay</span></button>
+    <button role="tab" data-tab="data" aria-selected="false"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 10h18M9 10v10"/></svg><span>Data</span></button>
+    <button role="tab" data-tab="settings" aria-selected="false"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h8M18 7h2M4 17h2M12 17h8"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/></svg><span>Settings</span></button>
+    <button role="tab" data-tab="storage" aria-selected="false"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg><span>Storage</span></button>
+  </nav>
+  <div class="side-foot">
+    <div class="seg" role="group" aria-label="Appearance">
+      <button type="button" data-theme-choice="auto" aria-pressed="true">Auto</button>
+      <button type="button" data-theme-choice="light" aria-pressed="false">Light</button>
+      <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
+    </div>
+  </div>
+</aside>
+
+<div class="content">
 <header class="top">
-  <div class="brand"><img class="logo" src="icon.svg" alt="" width="28" height="28"><h1>Signal Lab</h1><span id="version" class="muted"></span></div>
   <div class="chips" aria-live="polite">
     <span class="pill" id="chipWs" title="Live feed connection">feed: connecting</span>
     <span class="pill" id="chipQueue" title="Ingest queue depth">queue: –</span>
     <span class="pill" id="chipReplay" title="Replay state">replay: idle</span>
   </div>
 </header>
-<nav class="tabs" role="tablist" aria-label="Sections">
-  <button role="tab" data-tab="live" aria-selected="true">Live</button>
-  <button role="tab" data-tab="replay" aria-selected="false">Replay</button>
-  <button role="tab" data-tab="data" aria-selected="false">Data</button>
-  <button role="tab" data-tab="settings" aria-selected="false">Settings</button>
-  <button role="tab" data-tab="storage" aria-selected="false">Storage</button>
-</nav>
 <div id="banner" class="banner bad" role="alert" hidden></div>
 <div id="runDone" class="banner runDone" role="status" hidden>
   <span id="runDoneText"></span>
@@ -33,44 +47,38 @@
 <main>
 <!-- LIVE -->
 <section id="tab-live" class="tab" role="tabpanel">
-  <div class="grid">
-    <div class="card">
-      <h2>Feed</h2>
-      <div class="row"><span>Events seen in this window</span><b id="nEvents">0</b></div>
-      <div class="row"><span>Alerts seen in this window</span><b id="nAlerts">0</b></div>
-      <p class="muted small">Live messages are best effort. Browse the <a href="#data">Data</a> tab for everything stored.</p>
-    </div>
-    <div class="card">
-      <h2>Ingestion and queue health</h2>
-      <div class="row"><span>Queue depth<span class="tip" data-tip-id="queue"></span></span><b id="mQueue">–</b></div>
-      <div class="meter"><div id="queueBar"></div></div>
-      <div class="row"><span>Accepted (queued)<span class="tip" data-tip-id="accepted"></span></span><b id="mAccepted">–</b></div>
-      <div class="row"><span>Rejected: invalid<span class="tip" data-tip-id="invalid"></span></span><b id="mInvalid">–</b></div>
-      <div class="row"><span>Rejected: overload (429)<span class="tip" data-tip-id="overload"></span></span><b id="mOverload">–</b></div>
-      <div class="row"><span>Stored / duplicate / failed</span><b id="mProcessed">–</b></div>
-    </div>
-    <div class="card wide">
-      <h2>Latest reading per device</h2>
-      <div class="scroll-x"><table>
-        <thead><tr><th>Device</th><th>Time (UTC)</th><th class="num">Temp °C</th><th>Temperature trend</th><th class="num">Vibration mm/s</th><th>Vibration trend</th><th>Status</th></tr></thead>
-        <tbody id="devices"></tbody>
-      </table></div>
-      <div id="devicesEmpty" class="emptyState">
-        <p>No readings yet. Run the quick demo to see machines report in, or open the <a href="#replay">Replay</a> tab to set up your own run.</p>
-        <button type="button" class="primary demoBtn">Run quick demo</button>
-      </div>
-      <p id="trendLegend" class="muted small" hidden></p>
-    </div>
-    <div class="card wide">
-      <h2>Alert feed</h2>
-      <ul id="alerts" class="feed"><li class="empty" id="noAlerts">No alerts yet. Alerts appear when a reading reaches a threshold.</li></ul>
-      <div id="alertsEmpty" class="emptyState"><button type="button" class="demoBtn">Run quick demo</button></div>
-    </div>
+  <h2 class="page-title">Live</h2>
+  <div class="kpis">
+    <div class="kpi"><span class="kpi-l">Events seen</span><b id="nEvents" class="kpi-v">0</b><span class="kpi-s">in this window</span></div>
+    <div class="kpi"><span class="kpi-l">Alerts</span><b id="nAlerts" class="kpi-v">0</b><span class="kpi-s">in this window</span></div>
+    <div class="kpi"><span class="kpi-l">Queue depth<span class="tip" data-tip-id="queue"></span></span><b id="mQueue" class="kpi-v">–</b><div class="meter"><div id="queueBar"></div></div></div>
+    <div class="kpi"><span class="kpi-l">Stored / duplicate / failed</span><b id="mProcessed" class="kpi-v kpi-small">–</b><span class="kpi-s">outcomes so far</span></div>
+  </div>
+  <div class="card slim">
+    <div class="row"><span>Accepted (queued)<span class="tip" data-tip-id="accepted"></span></span><b id="mAccepted">–</b></div>
+    <div class="row"><span>Rejected: invalid<span class="tip" data-tip-id="invalid"></span></span><b id="mInvalid">–</b></div>
+    <div class="row"><span>Rejected: overload (429)<span class="tip" data-tip-id="overload"></span></span><b id="mOverload">–</b></div>
+    <p class="muted small foot">Live messages are best effort. Browse the <a href="#data">Data</a> tab for everything stored.</p>
+  </div>
+
+  <h3 class="section-title">Latest reading per device</h3>
+  <div id="devicesEmpty" class="card emptyState">
+    <p>No readings yet. Run the quick demo to see machines report in, or open the <a href="#replay">Replay</a> tab to set up your own run.</p>
+    <button type="button" class="primary demoBtn">Run quick demo</button>
+  </div>
+  <div id="devices" class="devices" hidden></div>
+  <p id="trendLegend" class="muted small" hidden></p>
+
+  <h3 class="section-title">Alert feed</h3>
+  <div class="card flush">
+    <ul id="alerts" class="feed" tabindex="0" aria-label="Recent alerts"><li class="empty" id="noAlerts">No alerts yet. Alerts appear when a reading reaches a threshold.</li></ul>
+    <div id="alertsEmpty" class="emptyState"><button type="button" class="demoBtn">Run quick demo</button></div>
   </div>
 </section>
 
 <!-- REPLAY -->
 <section id="tab-replay" class="tab" role="tabpanel" hidden>
+  <h2 class="page-title">Replay</h2>
   <div class="runbar" id="runbar">
     <div class="presets" id="presets" role="group" aria-label="Presets"></div>
     <div class="runctl">
@@ -140,6 +148,7 @@
 
 <!-- DATA -->
 <section id="tab-data" class="tab" role="tabpanel" hidden>
+  <h2 class="page-title">Data</h2>
   <div class="card">
     <h2>Browse stored data</h2>
     <form id="dataForm" class="filters" autocomplete="off">
@@ -157,15 +166,16 @@
       <span id="exportNote" class="muted small"></span>
     </div>
     <p id="dataNote" class="muted small" aria-live="polite"></p>
-    <div class="scroll-x"><table id="dataTable"><thead></thead><tbody></tbody></table></div>
+    <div class="scroll-x" tabindex="0" role="region" aria-label="Stored data table"><table id="dataTable"><thead></thead><tbody></tbody></table></div>
     <div class="actions"><button type="button" id="btnMore" hidden>Load more</button></div>
   </div>
 </section>
 
 <!-- SETTINGS -->
 <section id="tab-settings" class="tab" role="tabpanel" hidden>
+  <h2 class="page-title">Settings</h2>
   <form id="settingsForm" class="card" autocomplete="off">
-    <h2>Settings</h2>
+    <h2>Engine and alert thresholds</h2>
     <div id="settingsFields" class="fields"></div>
     <p class="muted small">Alert thresholds apply to the next batch stored; events already stored keep their alerts. Changing the queue or workers rebuilds the ingest engine: queued events are saved first, the live feed reconnects, and it is refused while a replay is running.</p>
     <div class="actions">
@@ -178,6 +188,7 @@
 
 <!-- STORAGE -->
 <section id="tab-storage" class="tab" role="tabpanel" hidden>
+  <h2 class="page-title">Storage</h2>
   <div class="grid">
     <div class="card">
       <h2>What is stored</h2>
@@ -210,6 +221,8 @@
   </div>
 </section>
 </main>
+</div>
+</div>
 <script src="app.js"></script>
 </body>
 </html>

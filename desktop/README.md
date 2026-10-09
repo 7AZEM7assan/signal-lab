@@ -59,6 +59,8 @@ except a replay that you aim at a service of your own (see below).
   artificial worker delay (these rebuild the ingest engine; queued events are saved first).
 - **Storage**: what is stored, database size and location, and "Delete all data" behind a typed
   confirmation.
+- **Appearance**: light, dark or follow the system, chosen at the bottom of the sidebar. On a Mac the
+  window has no title bar and the traffic-light buttons sit over the sidebar.
 
 ## How it works
 
@@ -107,6 +109,12 @@ xvfb-run -a make desktop-smoke         # the same on a headless Linux machine
 
 `SMOKE_PACKAGED=/path/to/the/built/executable` runs the same test against a built app. To try the engine
 without Electron: `make app` prints a link to open in any browser.
+
+## The app icon
+
+The icon follows Apple's macOS icon grid (a 1024 px canvas, an 824 px body with continuous corners, a
+soft shadow). It is generated, not drawn by hand: `node scripts/gen-icon.js` writes `build/icon.svg` and
+the panel's copy, and `npx electron scripts/gen-icon.js --png` also renders `build/icon.png`.
 
 ## Signing and notarization (optional, macOS)
 

@@ -161,6 +161,8 @@ function isOurs(url) {
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1180, height: 820, minWidth: 820, minHeight: 560, title: "Signal Lab", show: false,
+    // On a Mac the title bar is hidden and the traffic lights sit over the sidebar, like Finder and Notes.
+    ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 18, y: 18 } } : {}),
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, sandbox: true,
       spellcheck: false },
   });
