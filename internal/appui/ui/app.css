@@ -208,6 +208,7 @@ input[aria-invalid="true"] { border-color:var(--bad); }
 .stats { display:grid; gap:0; grid-template-columns:1fr; }
 .stats .row { display:block; padding:9px 0; }
 .stats .row > span:first-child { display:flex; align-items:center; font-size:12px; color:var(--muted); }
+.stats .row .val { display:block; margin-top:3px; }
 .stats .row b { display:block; white-space:normal; text-align:left; overflow-wrap:anywhere; font-weight:600; margin-top:1px; }
 .stats .note { grid-column:1 / -1; }
 .summary { margin:8px 0; font-weight:600; }
@@ -252,3 +253,16 @@ label.radio input { margin:0; flex:none; }
   .banner { width:calc(100% - 32px); }
 }
 @media (prefers-reduced-motion: reduce) { * { transition:none !important; } button:active:not(:disabled) { transform:none; } }
+
+/* ---- response codes and latency bars ---- */
+.codes { display:flex; flex-wrap:wrap; gap:6px; }
+.code { padding:1px 9px; border-radius:99px; font-size:12px; font-weight:600; background:var(--hover); color:var(--muted); white-space:nowrap; font-variant-numeric:tabular-nums; }
+.code.ok { background:var(--ok-bg); color:var(--ok); }
+.code.warn { background:var(--warn-bg); color:var(--warn); }
+.code.bad { background:var(--bad-bg); color:var(--bad); }
+.lat { display:grid; gap:5px; }
+.lat-row { display:grid; grid-template-columns:30px minmax(0,1fr) 84px; align-items:center; gap:8px; font-size:12px; font-variant-numeric:tabular-nums; }
+.lat-n { color:var(--muted); }
+.lat-bar { height:6px; border-radius:3px; background:var(--track); overflow:hidden; }
+.lat-bar > div { height:100%; background:var(--accent-fill); border-radius:3px; }
+.lat-v { text-align:right; font-weight:600; font-size:12px; }

@@ -322,8 +322,11 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.whenReady().then(async () => {
     app.setAboutPanelOptions({ applicationName: "Signal Lab", applicationVersion: app.getVersion(), copyright: "MIT License", website: PROJECT_URL });
-    // The panel needs no browser permissions (camera, location, notifications, ...).
-    session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
+    // The panel needs no browser permissions (camera, location, notifications, ...) except putting text on the
+    // clipboard when you press "Copy results", and only from the panel's own page.
+    const allowed = (wc, perm) => perm === "clipboard-sanitized-write" && !!wc && isOurs(wc.getURL());
+    session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(allowed(wc, perm)));
+    session.defaultSession.setPermissionCheckHandler((wc, perm) => allowed(wc, perm));
     buildMenu();
     await launch();
   });

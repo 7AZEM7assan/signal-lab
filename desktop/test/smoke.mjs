@@ -100,10 +100,28 @@ if (shotDir) await win.screenshot({ path: path.join(shotDir, "desktop-replay.png
   check(seen.length > 0 && seen.every((r) => r.key === "abc123" && r.token === undefined && r.url === "/ingest?key=SECRET"), "your service gets the header and the address, and never the app's token", `${seen.length} requests`);
   check(!own1.includes("SECRET") && !own1.includes("/ingest"), "the results show only the host, not the path or key");
   check(!(await win.isVisible("#runDoneView")), "no 'View in Data' for readings sent elsewhere");
+  // Results: response codes as chips, latency bars, and a Copy button that puts a plain-text summary on the clipboard.
+  check((await win.locator("#rpStats .codes .code.ok").count()) > 0 && (await win.locator("#rpStats .lat .lat-row").count()) === 4, "results show response-code chips and four latency bars");
+  await win.click("#rpCopy");
+  check(await until(async () => (await win.innerText("#rpCopyMsg")) === "Copied.", 3000), "'Copy results' reports that it copied");
+  const copied = await app.evaluate(({ clipboard }) => clipboard.readText());
+  check(copied.startsWith("Signal Lab replay: done") && copied.includes("Sent to: http://127.0.0.1") && !copied.includes("SECRET") && !copied.includes("abc123"), "the copied summary names the host and leaves out the key and the path", copied.split("\n")[0]);
+  // "Send one test record" sends exactly one reading, with the header, and never the app's token.
+  const before = seen.length;
+  await win.click("#btnProbe");
+  check(await until(async () => (await win.innerText("#runDoneText").catch(() => "")).startsWith("Replay done: 1 sent to http://127.0.0.1"), 20000), "'Send one test record' sends one reading and reports it", await win.innerText("#runDoneText").catch(() => ""));
+  check(seen.length === before + 1 && seen.at(-1).key === "abc123" && seen.at(-1).token === undefined, "the test record carries your header and not the app's token", `${seen.length - before} request(s)`);
   await win.check('#destBox input[value="builtin"]');
   await new Promise((r) => own.close(r));
   await win.fill('#fields [name="duration_s"]', "120"); // back to the default for the checks below
 }
+
+// Keyboard: Ctrl+2 opens Replay and Ctrl+1 goes back to Live (Command+number on a Mac does the same).
+await win.keyboard.press("Control+2");
+check((await win.getAttribute('[data-tab="replay"]', "aria-selected")) === "true", "Ctrl+2 switches to the Replay tab");
+await win.keyboard.press("Control+1");
+check((await win.getAttribute('[data-tab="live"]', "aria-selected")) === "true", "Ctrl+1 switches back to the Live tab");
+check((await win.getAttribute('[data-tab="data"]', "title")).includes("(") && (await win.getAttribute('[data-tab="data"]', "aria-keyshortcuts")) !== null, "tabs show their shortcut");
 
 const first = await stored(win);
 check(first === 300, "events are stored in the embedded database", String(first));

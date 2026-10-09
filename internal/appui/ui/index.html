@@ -116,6 +116,7 @@
           <p id="tHeadersHelp" class="muted small">One per line, as <code>Name: value</code>. Kept in memory for the run only; never saved, shown again or logged.</p>
           <label id="tConfirmRow" class="radio" hidden><input type="checkbox" id="tConfirm"> I own this service or have permission to send test traffic to it</label>
           <p id="tRateNote" class="muted small" hidden></p>
+          <div class="actions"><button type="button" id="btnProbe">Send one test record</button><span class="muted small">Checks the address and headers with a single simulated record before a full run.</span></div>
         </div>
       </fieldset>
 
@@ -142,6 +143,7 @@
       <div class="meter big"><div id="rpBar"></div></div>
       <p id="rpSummary" class="summary" hidden></p>
       <div class="stats" id="rpStats"></div>
+      <div class="actions"><button type="button" id="rpCopy" hidden>Copy results</button><span id="rpCopyMsg" class="small muted" role="status"></span></div>
     </div>
   </div>
 </section>
