@@ -140,6 +140,19 @@ function showTab(name) {
   if (name === "data") { loadDevices(); }
 }
 document.querySelector(".tabs").addEventListener("click", (e) => { const t = e.target.closest("[data-tab]"); if (t) showTab(t.dataset.tab); });
+// Keyboard: Command+1 to 5 on a Mac, Ctrl+1 to 5 elsewhere, switch the section.
+const MOD_KEY = /Macintosh/.test(navigator.userAgent) ? "⌘" : "Ctrl+";
+document.querySelectorAll(".tabs [data-tab]").forEach((b, i) => {
+  b.title = `${b.textContent.trim()} (${MOD_KEY}${i + 1})`;
+  b.setAttribute("aria-keyshortcuts", `${MOD_KEY === "⌘" ? "Meta" : "Control"}+${i + 1}`);
+});
+document.addEventListener("keydown", (e) => {
+  if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+  const i = "12345".indexOf(e.key);
+  if (i < 0 || e.key.length !== 1) return;
+  e.preventDefault();
+  showTab(TABS[i]);
+});
 window.addEventListener("hashchange", () => showTab(location.hash.slice(1)));
 
 // ---------- Live: WebSocket feed, trends and metrics ----------
@@ -472,7 +485,7 @@ function parseHeaders(text) {
   return out;
 }
 // The destination and data choices as replay settings. Throws a message for the field to fix.
-function readTarget() {
+function readTarget(withData = true) {
   const out = {};
   if (dest() === "own") {
     const url = $("tUrl").value.trim();
@@ -483,7 +496,7 @@ function readTarget() {
     if (Object.keys(h).length) out.target_headers = h;
     out.target_confirmed = $("tConfirm").checked;
   }
-  if (src() === "file") {
+  if (withData && src() === "file") {
     if (!dataset) throw fieldError("fFile", "Choose a file first, or switch back to simulated readings");
     out.use_dataset = true;
     out.rebase_time = $("fRebase").checked;
@@ -565,6 +578,19 @@ $("replayForm").addEventListener("submit", async (e) => {
   try { await startReplay(cfg); }
   catch (err) { $("formError").textContent = err.message; }
 });
+// "Send one test record": a single simulated reading to your own service, to check the address and headers.
+$("btnProbe").addEventListener("click", async () => {
+  $("formError").textContent = "";
+  try {
+    const base = readForm($("fields"), REPLAY_FIELDS);
+    const target = readTarget(false);
+    await startReplay({ ...base, ...target, devices: 1, duration_s: base.interval_s, anomaly_rate: 0, malformed_rate: 0, duplicate_rate: 0, late_rate: 0,
+      late_seconds: 0, burst_every: 0, burst_size: 0, jitter_ms: 0, rate_per_s: 0, batch_size: 1, concurrency: 1, retries: 0 });
+  } catch (err) {
+    $("formError").textContent = err.message;
+    if (err.fieldId) $(err.fieldId).focus(); else if (err.field) revealField(err.field);
+  }
+});
 $("btnStop").addEventListener("click", async () => { try { renderReplay(await api("POST", "/app/api/replay/stop")); } catch (err) { $("formError").textContent = err.message; } });
 
 // "Run quick demo" in the Live tab's empty states: the Quick demo preset, then back to Live.
@@ -588,7 +614,7 @@ const STATE_CLS = { running: "warn", done: "ok", stopped: "warn", failed: "bad",
 function stat(label, value, tipKey) {
   const l = el("span", { text: label });
   if (tipKey) l.append(tipEl(TIPS[tipKey]));
-  return el("div", { class: "row" }, l, el("b", { text: value }));
+  return el("div", { class: "row" }, l, typeof value === "string" ? el("b", { text: value }) : el("div", { class: "val" }, value));
 }
 function hideRunDone() { $("runDone").hidden = true; $("rpSummary").hidden = true; }
 function showRunDone(line) {
@@ -650,7 +676,7 @@ function renderReplay(s) {
   if (running && !runWatch) runWatch = { startedAt: s.started_at, base: null, reported: false }; // run started before this page loaded
   if ((s.state === "done" || s.state === "stopped") && runWatch && !runWatch.reported && runWatch.startedAt === s.started_at) finishRun(s);
   const box = $("rpStats"); box.replaceChildren();
-  if (s.state === "idle") { box.append(el("p", { class: "muted", text: "No replay has run yet." })); return; }
+  if (s.state === "idle") { $("rpCopy").hidden = true; box.append(el("p", { class: "muted", text: "No replay has run yet." })); return; }
   const rc = Object.entries(s.rejection_counts || {}).map(([k, v]) => `${v} ${k.replaceAll("_", " ")}`).join(", ");
   const inj = s.injected || {};
   const lat = s.latency || {};
@@ -665,11 +691,14 @@ function renderReplay(s) {
     ["Gave up after retries", `${fmtInt(s.gave_up_records)} records`, "gaveup"],
     ["Request errors", `${fmtInt(s.request_errors)} (${fmtInt(s.errored_records)} records)`, "errors"],
   ];
-  if (s.status_counts && Object.keys(s.status_counts).length) rows.push(["Responses", statusLine(s.status_counts), "responses"]);
+  if (s.status_counts && Object.keys(s.status_counts).length) rows.push(["Responses", statusChips(s.status_counts), "responses", statusLine(s.status_counts)]);
   if (s.first_error) rows.push(["First problem", firstErrorText(s.first_error), "firsterror"]);
   rows.push(["Injected faults", `${fmtInt(inj.malformed)} malformed, ${fmtInt(inj.duplicates)} duplicated, ${fmtInt(inj.late)} late`, "injected"]);
-  rows.push(["Request latency", lat.count ? `p50 ${lat.p50_ms} ms, p95 ${lat.p95_ms} ms, p99 ${lat.p99_ms} ms, max ${lat.max_ms} ms` : "–", "latency"]);
+  const latText = lat.count ? `p50 ${lat.p50_ms} ms, p95 ${lat.p95_ms} ms, p99 ${lat.p99_ms} ms, max ${lat.max_ms} ms` : "–";
+  rows.push(["Request latency", lat.count ? latencyBars(lat) : "–", "latency", latText]);
   for (const [k, v, tip] of rows) box.append(stat(k, v, tip));
+  lastCopy = [`Signal Lab replay: ${s.state}`, ...rows.map(([k, v, , plain]) => `${k}: ${plain ?? v}`)].join("\n");
+  $("rpCopy").hidden = false;
   if (s.state === "done" || s.state === "stopped") {
     box.append(el("p", { class: "muted small note", text: s.external
       ? "These readings went to your service and were not stored here, so they do not appear in the Live or Data tabs. Check your service for what it kept."
@@ -683,6 +712,34 @@ function statusLine(counts) {
   return Object.entries(counts).sort((a, b) => Number(a[0]) - Number(b[0]))
     .map(([code, n]) => `${code}${STATUS_TEXT[code] ? " " + STATUS_TEXT[code] : ""} × ${fmtInt(n)}`).join(", ");
 }
+// Response codes as small chips: 2xx green, 429 and redirects amber, other 4xx and 5xx red.
+function statusChips(counts) {
+  const box = el("div", { class: "codes" });
+  for (const [code, n] of Object.entries(counts).sort((a, b) => Number(a[0]) - Number(b[0]))) {
+    const c = Number(code);
+    const kind = c >= 200 && c < 300 ? "ok" : c === 429 || (c >= 300 && c < 400) ? "warn" : "bad";
+    box.append(el("span", { class: "code " + kind, text: `${code}${STATUS_TEXT[code] ? " " + STATUS_TEXT[code] : ""} × ${fmtInt(n)}` }));
+  }
+  return box;
+}
+// Request latency as four small bars scaled to the slowest request.
+function latencyBars(l) {
+  const max = Math.max(l.max_ms || 0, 0.001);
+  const wrap = el("div", { class: "lat" });
+  for (const [name, v] of [["p50", l.p50_ms], ["p95", l.p95_ms], ["p99", l.p99_ms], ["max", l.max_ms]]) {
+    const fill = el("div", {});
+    fill.style.width = Math.max(2, Math.min(100, (100 * v) / max)) + "%";
+    wrap.append(el("div", { class: "lat-row" }, el("span", { class: "lat-n", text: name }), el("div", { class: "lat-bar" }, fill), el("span", { class: "lat-v", text: `${v} ms` })));
+  }
+  return wrap;
+}
+let lastCopy = "";
+$("rpCopy").addEventListener("click", async () => {
+  const msg = $("rpCopyMsg");
+  try { await navigator.clipboard.writeText(lastCopy); msg.textContent = "Copied."; }
+  catch { msg.textContent = "Could not copy. Select the results and copy them by hand."; }
+  setTimeout(() => { msg.textContent = ""; }, 2500);
+});
 function firstErrorText(e) {
   return `request ${e.batch}: ${e.message}${e.body ? ` — “${e.body}”` : ""}`;
 }

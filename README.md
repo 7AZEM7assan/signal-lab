@@ -154,6 +154,12 @@ and retries went, the first error with the start of what your service answered, 
 python3 examples/toy_receiver.py     # a toy service to try it against, no install
 ```
 
+![Results of a replay sent to a service of your own](docs/screenshots/app-own-service.png)
+
+Not sure the address and headers are right? **Send one test record** sends a single reading first. The
+results can be copied as plain text for a bug report, and Command+1 to 5 (Ctrl+1 to 5 elsewhere) switch
+sections.
+
 Nothing about your service is kept: header values live in memory for the run, only the host name is
 ever shown or logged, and the app's own token is never sent to it. The guide has the details and
 the limits: [`docs/test-your-service.md`](docs/test-your-service.md).

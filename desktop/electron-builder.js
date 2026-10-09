@@ -22,5 +22,13 @@ module.exports = {
   linux: { executableName: "signal-lab", category: "Development", target: ["AppImage", "tar.gz"], icon: "build/icon.png" },
   win: { target: ["nsis", "zip"], icon: "build/icon.png", signAndEditExecutable: false },
   nsis: { oneClick: false, perMachine: false, allowToChangeInstallationDirectory: true },
-  mac: { category: "public.app-category.developer-tools", target: ["dmg", "zip"], icon: "build/icon.png", ...macSigning(process.env) },
+  // macOS: build/icon.icns is the classic icon (all macOS versions). build/Assets.car holds the macOS 26 icon with
+  // light, dark and tinted looks; CFBundleIconName points at it. Both are compiled by scripts/gen-icon.js
+  // --compile and committed, so the build does not need Xcode 26.
+  mac: {
+    category: "public.app-category.developer-tools", target: ["dmg", "zip"], icon: "build/icon.icns",
+    extraResources: [{ from: "build/Assets.car", to: "Assets.car" }],
+    extendInfo: { CFBundleIconName: "Icon" },
+    ...macSigning(process.env),
+  },
 };
