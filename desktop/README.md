@@ -59,6 +59,8 @@ except a replay that you aim at a service of your own (see below).
   artificial worker delay (these rebuild the ingest engine; queued events are saved first).
 - **Storage**: what is stored, database size and location, and "Delete all data" behind a typed
   confirmation.
+- **Shortcuts**: Command+1 to 5 (Ctrl+1 to 5 on Windows and Linux) switch between Live, Replay, Data,
+  Settings and Storage.
 - **Appearance**: light, dark or follow the system, chosen at the bottom of the sidebar. On a Mac the
   window has no title bar and the traffic-light buttons sit over the sidebar.
 

@@ -22,7 +22,8 @@ Then, in the app's **Replay** tab:
 
 1. Under **Where to send** choose **My own service** and enter `http://127.0.0.1:3000/ingest`.
 2. In **Headers** type `X-Api-Key: secret`.
-3. Press **Start replay**.
+3. Press **Send one test record** to check the address and header with a single reading, or press
+   **Start replay** for the full run.
 
 The results show the responses by status (`202 Accepted`, and some `429 Too Many Requests` because
 the toy's pretend queue is small), and that the retries got everything through. Change the header
@@ -103,10 +104,14 @@ What to know:
 
 ## Reading the results
 
+
 *Sent to* and *Data* say where the readings went and where they came from. *Responses* counts the
 answers per HTTP status. *Request latency* is how long each request took (p50 is typical; p95 and
 p99 are the slow ones). *First problem* is the first failed request with up to 300 characters of
-what your service answered, cleaned to one line. Readings sent to your own service are **not
+what your service answered, cleaned to one line. Response codes are shown as chips
+(green for `2xx`, amber for `429` and redirects, red for other errors) and the latency as four small bars.
+**Copy results** puts a plain-text summary on the clipboard; it names only the host, never the path, key
+or header values. Readings sent to your own service are **not
 stored in the app**, so they do not appear in the Live or Data tabs: look in your service.
 
 ## Safety and limits
