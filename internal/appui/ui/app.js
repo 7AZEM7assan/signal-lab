@@ -3,6 +3,25 @@
 const $ = (id) => document.getElementById(id);
 const desktop = window.signalLabDesktop || null; // set by the desktop app's preload script, if present
 if (desktop) document.body.classList.add("in-desktop"); // the window's title bar already says "Signal Lab"
+// On a Mac the desktop window has no title bar (the traffic lights sit over the sidebar), so the page leaves room for them.
+if (desktop && /Macintosh/.test(navigator.userAgent)) document.documentElement.classList.add("mac-desktop");
+
+// ---------- appearance: follow the system, or force light or dark (remembered on this computer) ----------
+const THEME_KEY = "signalLabTheme";
+function applyTheme(choice) {
+  const forced = choice === "light" || choice === "dark";
+  if (forced) document.documentElement.dataset.theme = choice; else delete document.documentElement.dataset.theme;
+  for (const b of document.querySelectorAll("[data-theme-choice]")) b.setAttribute("aria-pressed", String(b.dataset.themeChoice === (forced ? choice : "auto")));
+}
+let savedTheme = "auto";
+try { savedTheme = localStorage.getItem(THEME_KEY) || "auto"; } catch { /* storage unavailable: follow the system */ }
+applyTheme(savedTheme);
+document.querySelector(".seg").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-theme-choice]");
+  if (!b) return;
+  applyTheme(b.dataset.themeChoice);
+  try { localStorage.setItem(THEME_KEY, b.dataset.themeChoice); } catch { /* not remembered */ }
+});
 
 // ---------- plain-language help (one sentence each; the technical names stay visible) ----------
 const TIPS = {
@@ -160,12 +179,18 @@ function spark(values, threshold, what, unit, device) {
   return svg;
 }
 
+// One reading (temperature or vibration) inside a device card: label, value with unit, and its trend.
+function metric(label, value, unit, hit, chart) {
+  return el("div", { class: "metric" },
+    el("div", {}, el("span", { class: "m-l", text: label }), el("b", { class: "m-v" + (hit ? " hit" : "") }, value, el("small", { text: unit }))),
+    chart);
+}
 function renderDevices() {
   renderTimer = null;
   const body = $("devices"); body.replaceChildren();
   const empty = latest.size === 0;
   $("devicesEmpty").hidden = !empty;
-  $("devices").closest(".scroll-x").hidden = empty;
+  body.hidden = empty;
   $("trendLegend").hidden = empty;
   if (empty) return;
   $("trendLegend").textContent = `Solid line: the last ${TREND_POINTS} readings. Dashed line: the alert threshold (${thresholds.temp} °C, ${thresholds.vib} mm/s). ▲ marks a reading at or above it.`;
@@ -174,27 +199,30 @@ function renderDevices() {
     const tHit = rules?.has("temperature_high") || e.temperature_c >= thresholds.temp;
     const vHit = rules?.has("vibration_high") || e.vibration_mm_s >= thresholds.vib;
     const h = trend.get(id) || { temp: [e.temperature_c], vib: [e.vibration_mm_s] };
-    const status = tHit || vHit
-      ? el("td", { class: "status-alert", text: `▲ Alert: ${[tHit && "temperature", vHit && "vibration"].filter(Boolean).join(" and ")}` })
-      : el("td", { class: "status-ok", text: "OK" });
-    body.append(el("tr", {},
-      el("td", { class: "nowrap", text: id }),
-      el("td", { class: "nowrap", title: e.event_time, text: e.event_time.slice(11, 19) }),
-      el("td", { class: "num" + (tHit ? " hit" : ""), text: e.temperature_c.toFixed(2) }),
-      el("td", { class: "sparkcell" }, spark(h.temp, thresholds.temp, "Temperature", "°C", id)),
-      el("td", { class: "num" + (vHit ? " hit" : ""), text: e.vibration_mm_s.toFixed(2) }),
-      el("td", { class: "sparkcell" }, spark(h.vib, thresholds.vib, "Vibration", "mm/s", id)),
-      status));
+    const alert = tHit || vHit;
+    const status = alert
+      ? el("span", { class: "badge bad", text: `▲ Alert: ${[tHit && "temperature", vHit && "vibration"].filter(Boolean).join(" and ")}` })
+      : el("span", { class: "badge ok", text: "OK" });
+    body.append(el("article", { class: "device" + (alert ? " alert" : "") },
+      el("div", { class: "dev-head" }, el("span", { class: "dev-name", text: id }), status),
+      metric("Temperature", e.temperature_c.toFixed(2), "°C", tHit, spark(h.temp, thresholds.temp, "Temperature", "°C", id)),
+      metric("Vibration", e.vibration_mm_s.toFixed(2), "mm/s", vHit, spark(h.vib, thresholds.vib, "Vibration", "mm/s", id)),
+      el("div", { class: "dev-foot", title: e.event_time, text: `Last reading ${e.event_time.slice(11, 19)} UTC` })));
   }
 }
 function scheduleRender() { if (renderTimer == null) renderTimer = setTimeout(renderDevices, 250); }
+const RULE_LABEL = { temperature_high: "Temperature", vibration_high: "Vibration" };
 function addAlert(a) {
   $("noAlerts")?.remove();
   $("alertsEmpty").hidden = true;
   if (!fired.has(a.event_id)) fired.set(a.event_id, new Set());
   fired.get(a.event_id).add(a.rule);
   if (fired.size > MAX_FIRED) fired.delete(fired.keys().next().value);
-  const li = el("li", { class: "bad", text: `▲ ${a.event_time}  ${a.device_id}  ${a.rule}  observed ${a.observed} (threshold ${a.threshold})` });
+  const li = el("li", { class: "bad" },
+    el("span", { class: "badge bad", text: `▲ ${RULE_LABEL[a.rule] || a.rule}` }),
+    el("span", { class: "a-dev", text: a.device_id }),
+    el("span", { class: "a-text", text: `observed ${a.observed} (threshold ${a.threshold})` }),
+    el("time", { datetime: a.event_time, title: a.event_time, text: `${a.event_time.slice(11, 19)} UTC` }));
   const list = $("alerts"); list.prepend(li);
   while (list.children.length > 100) list.lastChild.remove();
   scheduleRender();
