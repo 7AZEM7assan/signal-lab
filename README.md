@@ -32,6 +32,12 @@ export stored data, edit settings and clear data, with no Docker, PostgreSQL or 
 
 ![Replay tab of the desktop app](docs/screenshots/app-replay.png)
 
+![Live tab of the desktop app in dark mode](docs/screenshots/app-live-dark.png)
+
+The app is built to feel at home on a Mac: a native window with the traffic-light buttons over the
+sidebar, Apple's system font and colours, and light or dark mode that follows your system (or choose
+in the sidebar). It runs the same way on Windows and Linux.
+
 ### Download
 
 Get the installer for your computer from the

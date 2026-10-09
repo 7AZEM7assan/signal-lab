@@ -34,6 +34,7 @@ await win.waitForTimeout(300);
 await shot("app-replay.png");
 
 await win.click('[data-tab="live"]'); await resize(860); await win.waitForTimeout(800); await shot("app-live.png");
+await win.click('[data-theme-choice="dark"]'); await win.waitForTimeout(300); await shot("app-live-dark.png"); await win.click('[data-theme-choice="auto"]');
 
 await win.click('[data-tab="data"]');
 await win.selectOption("#dKind", "alerts");
