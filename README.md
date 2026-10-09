@@ -32,11 +32,47 @@ export stored data, edit settings and clear data, with no Docker, PostgreSQL or 
 
 ![Replay tab of the desktop app](docs/screenshots/app-replay.png)
 
-Download it from the [releases page](https://github.com/7AZEM7assan/signal-lab/releases) or build it
-with `make desktop-dist` (needs Go and Node.js). The installers are not code-signed, so macOS and
-Windows show a one-time warning; [`desktop/README.md`](desktop/README.md) explains how to open the
-app, where your data lives, how it works and how it is secured. The control API behind the panel is
-described in [`docs/app-api.md`](docs/app-api.md).
+### Download
+
+Get the installer for your computer from the
+**[latest release](https://github.com/7AZEM7assan/signal-lab/releases/latest)** (open it, then look
+under *Assets*):
+
+| Your computer | File |
+|---|---|
+| Mac with Apple silicon (M1 or newer) | `Signal-Lab-<version>-mac-arm64.dmg` |
+| Mac with an Intel chip | `Signal-Lab-<version>-mac-x64.dmg` |
+| Windows 10 or 11 | `Signal-Lab-<version>-win-x64.exe` (`-win-arm64.exe` on ARM PCs) |
+| Linux (x64) | `Signal-Lab-<version>-linux-x86_64.AppImage` (or the `.tar.gz`) |
+
+Not sure which Mac you have? Apple menu > **About This Mac**: "Chip: Apple M..." is Apple silicon,
+"Processor: Intel..." is Intel. Each file is roughly 130-160 MB because it includes the Electron
+runtime. `.zip` versions of the Mac and Windows builds (no installer) are attached too.
+
+**Tested so far** (by the author): macOS on Apple silicon, and Linux. The Intel Mac and Windows
+builds are produced by this repository's CI but have not been run on a real machine yet.
+<!-- Update the line above as more platforms are tried. -->
+
+**The first launch shows a warning.** The apps are not code-signed (signing needs paid developer
+certificates, and this is a free open-source project), so your system asks once. It is expected and
+does not mean the file is damaged.
+
+- **macOS:** the app is blocked with "Signal Lab was blocked to protect your Mac". Open **System
+  Settings > Privacy & Security**, scroll down and click **Open Anyway**. If a dialog offers *Move
+  to Trash*, choose **Done**, not Move to Trash. (If you already have another copy of Signal Lab,
+  macOS may open that one instead.)
+- **Windows:** if SmartScreen says "Windows protected your PC", click **More info**, then
+  **Run anyway**.
+- **Linux:** no warning. `chmod +x Signal-Lab-*.AppImage && ./Signal-Lab-*.AppImage`. If it does not
+  start, install FUSE 2 (`libfuse2`) or use the `.tar.gz`.
+
+Prefer to build it yourself? You need [Go](https://go.dev/dl/) 1.25+ and
+[Node.js](https://nodejs.org/) 22+: `git clone https://github.com/7AZEM7assan/signal-lab`, then
+`make desktop-dist` builds the app for your system into `desktop/dist/`.
+
+Everything the app stores is one local SQLite file, and uninstalling does not delete it.
+[`desktop/README.md`](desktop/README.md) explains where your data lives, how the app works and how
+it is secured. The control API behind the panel is described in [`docs/app-api.md`](docs/app-api.md).
 
 ### Use it on your own service
 
