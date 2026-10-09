@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-24.04
     services:
       postgres:
-        image: postgres:17-alpine
+        image: public.ecr.aws/docker/library/postgres:17-alpine
         env:
           POSTGRES_USER: signallab
           POSTGRES_PASSWORD: signallab
@@ -62,10 +62,13 @@ jobs:
           python-version: "3.13"
       - run: pip install -e "sim[dev]"
       - run: cd sim && python -m pytest -m sil -v
+        env:
+          POSTGRES_IMAGE: public.ecr.aws/docker/library/postgres:17-alpine
+          GO_IMAGE: public.ecr.aws/docker/library/golang:1.25-alpine
 
   docker:
     name: Container build
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t signallab:ci .
+      - run: docker build --build-arg GO_IMAGE=public.ecr.aws/docker/library/golang:1.25-alpine -t signallab:ci .
