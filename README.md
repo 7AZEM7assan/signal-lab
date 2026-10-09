@@ -109,8 +109,9 @@ It helps to say which system you use (for example macOS 15 on Apple silicon, or 
 file you installed, what you did and what you saw. The app's log is in
 `~/Library/Application Support/Signal Lab/logs/` on macOS, `%APPDATA%\Signal Lab\logs\` on Windows
 and `~/.config/Signal Lab/logs/` on Linux; it does not contain the app's access token, so you can
-paste the relevant lines. For a security problem, use the private route in
-[`SECURITY.md`](SECURITY.md) instead.
+paste the relevant lines. You can also reach me through my website,
+[hazemhassanen.pages.dev](https://hazemhassanen.pages.dev/). For a security problem, use the
+private route in [`SECURITY.md`](SECURITY.md) instead.
 <!-- Update the line above as more platforms are tried. -->
 
 **The first launch shows a warning.** The apps are not code-signed (signing needs paid developer
