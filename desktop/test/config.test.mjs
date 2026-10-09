@@ -79,9 +79,19 @@ test("README download links match the version in package.json", () => {
   // After raising the version, run: node scripts/download-links.js --write  (then publish the release).
   const { version } = require("../package.json");
   const text = fs.readFileSync(path.join(root, "..", "README.md"), "utf8");
-  assert.ok(text.includes(block(version)), `README.md download links are not for v${version}: run node scripts/download-links.js --write`);
+  const unix = text.replace(/\r\n/g, "\n"); // Git checks the README out with CRLF on Windows
+  assert.ok(unix.includes(block(version)), `README.md download links are not for v${version}: run node scripts/download-links.js --write`);
   assert.equal(apply(text, version), text, "applying the links again must change nothing");
   for (const name of ["mac-arm64.dmg", "mac-x64.dmg", "win-x64.exe", "win-arm64.exe", "linux-x86_64.AppImage", "linux-x64.tar.gz"]) {
     assert.ok(text.includes(`/releases/download/v${version}/Signal-Lab-${version}-${name}`), name);
   }
+});
+
+test("the download links are rewritten correctly in a file with Windows line endings", () => {
+  const unix = "intro\n<!-- download-links:start (x) -->\nold\n<!-- download-links:end -->\noutro\n";
+  const dos = unix.replace(/\n/g, "\r\n");
+  const out = apply(dos, "9.9.9");
+  assert.ok(out.includes("v9.9.9/Signal-Lab-9.9.9-mac-arm64.dmg"));
+  assert.ok(!/[^\r]\n/.test(out), "every line ending must stay CRLF");
+  assert.equal(apply(unix, "9.9.9").includes("\r"), false, "a Unix file must stay Unix");
 });

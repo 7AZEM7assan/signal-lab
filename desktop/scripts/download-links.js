@@ -31,7 +31,9 @@ function version() { return require("../package.json").version; }
 function apply(text, v) {
   const a = text.indexOf("<!-- download-links:start"), b = text.indexOf(END);
   if (a < 0 || b < 0 || b < a) throw new Error("download-links markers not found in README.md");
-  return text.slice(0, a) + block(v) + text.slice(b + END.length);
+  // Keep the file's own line endings: Git checks files out with CRLF on Windows.
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  return text.slice(0, a) + block(v).replace(/\n/g, eol) + text.slice(b + END.length);
 }
 
 module.exports = { block, apply };
