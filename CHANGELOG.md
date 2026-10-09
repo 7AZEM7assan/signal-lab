@@ -3,14 +3,15 @@
 All notable changes to Signal Lab. Installers for every version are on the
 [releases page](https://github.com/7AZEM7assan/signal-lab/releases).
 
-## Unreleased
+## 0.2.2 - 2026-10-09
 
 - **Choose which column is which.** A CSV, NDJSON or JSON file whose columns are not recognised is no longer
   refused: the app shows the file's columns and lets you pick one for each field; **Change columns** reopens
   the choice after importing.
 - **A short welcome** on the first run, and **the window remembers its size and position**.
 - **Help > Check for updates…** opens the releases page in your browser (the app makes no network request).
-- The Appearance choice and the welcome are now remembered across launches (they are kept in `ui-prefs.json`
+- **Fixed:** in 0.2.1 the Appearance choice (Auto, Light, Dark) was forgotten every time the app was closed.
+  It and the welcome are now remembered across launches (they are kept in `ui-prefs.json`
   in the data folder; the panel's address changes on every launch, so the browser could not keep them).
 
 ## 0.2.1 - 2026-10-09
