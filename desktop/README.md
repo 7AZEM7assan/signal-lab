@@ -18,8 +18,8 @@ paid developer certificates, so each operating system shows a one-time warning:
 | **Linux** (x64) | `Signal-Lab-<version>-linux-x86_64.AppImage` or `.tar.gz` | `chmod +x Signal-Lab-*.AppImage && ./Signal-Lab-*.AppImage` |
 
 The download is about 130-160 MB because it includes the Electron runtime; the Signal Lab engine
-itself is an 18 MB program. Tested by the author so far: macOS on Apple silicon and Linux; the
-Intel Mac and Windows builds are made by CI and not yet run on a real machine.
+itself is an 18 MB program. Tested by the author so far: macOS on Apple silicon (the 0.2.0 download)
+and Linux; the Intel Mac and Windows builds are made by CI and not yet run on a real machine.
 
 **Building it yourself is the most reliable route**, and it avoids the warnings above on macOS:
 
@@ -151,8 +151,10 @@ shipped next to the app) and the Go modules listed in `THIRD_PARTY_NOTICES.txt` 
 
 ## Status
 
-- Tested: the Linux x64 build (source tree and packaged), with the smoke test above.
-- Built by the release workflow but **not tested by the author**: the Windows and macOS installers.
-  Please open an issue if one does not start.
+- Tested: the Linux x64 build (source tree and packaged), with the smoke test above, and the
+  macOS Apple silicon build from the 0.2.0 release page (downloaded in a browser: first-launch
+  warning, quick demo, a replay to the toy receiver, a file import, quit).
+- Built by the release workflow but **not tested by the author**: the Intel Mac and Windows
+  installers. Please open an issue if one does not start.
 - Not included: code signing, notarization and automatic updates. Updating means installing the
   newer version over the old one; your data folder is untouched.

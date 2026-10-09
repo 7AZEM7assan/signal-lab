@@ -98,8 +98,11 @@ does not show the first-launch warning below. The apps are still not code-signed
 steps have been run on a real machine (the download, checksum and install steps, not yet a first
 launch); the Linux and Windows commands have not been run on those systems.
 
-**Tested so far** (by the author): macOS on Apple silicon, and Linux. The Intel Mac and Windows
-builds are produced by this repository's CI but have not been run on a real machine yet.
+**Tested so far** (by the author): macOS on Apple silicon and Linux. On the Apple silicon Mac the
+0.2.0 release file was downloaded in a browser and checked against its published checksum, the
+first-launch warning was passed, and the quick demo, a replay to the toy receiver, a file
+import and quitting were run. The Intel Mac and Windows builds are produced by this repository's CI
+but have not been run on a real machine yet.
 <!-- Update the line above as more platforms are tried. -->
 
 **The first launch shows a warning.** The apps are not code-signed (signing needs paid developer
