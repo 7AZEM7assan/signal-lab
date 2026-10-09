@@ -46,6 +46,9 @@ let app = await launch();
 let win = await app.firstWindow();
 await panelReady(win);
 check((await win.title()) === "Signal Lab", "window opens with the control panel", await win.title());
+check(await win.isVisible("#welcome"), "the first run shows a short welcome");
+const help = await app.evaluate(({ Menu }) => Menu.getApplicationMenu().items.find((i) => i.label === "Help").submenu.items.map((i) => i.label));
+check(help.some((l) => l.startsWith("Check for updates")), "the Help menu offers 'Check for updates'", help.join(" | "));
 check(!(await win.url()).includes("token="), "the secret token is not left in the page URL", await win.url());
 
 const iso = await win.evaluate(() => ({
@@ -86,7 +89,7 @@ if (shotDir) await win.screenshot({ path: path.join(shotDir, "desktop-replay.png
 // Item: send to a service of your own (here a throwaway server on this computer).
 {
   const seen = [];
-  const own = http.createServer((req, res) => { req.resume(); req.on("end", () => { seen.push({ url: req.url, key: req.headers["x-api-key"], token: req.headers["x-signallab-token"] }); res.writeHead(200); res.end("{}"); }); });
+  const own = http.createServer((req, res) => { let body = ""; req.on("data", (c) => { body += c; }); req.on("end", () => { seen.push({ url: req.url, key: req.headers["x-api-key"], token: req.headers["x-signallab-token"], body }); res.writeHead(200); res.end("{}"); }); });
   await new Promise((r) => own.listen(0, "127.0.0.1", r));
   await win.click('[data-tab="replay"]');
   check(await win.isVisible("#destBox") && await win.isVisible("#dataBox"), "Replay offers 'Where to send' and 'Data to send'");
@@ -111,6 +114,28 @@ if (shotDir) await win.screenshot({ path: path.join(shotDir, "desktop-replay.png
   await win.click("#btnProbe");
   check(await until(async () => (await win.innerText("#runDoneText").catch(() => "")).startsWith("Replay done: 1 sent to http://127.0.0.1"), 20000), "'Send one test record' sends one reading and reports it", await win.innerText("#runDoneText").catch(() => ""));
   check(seen.length === before + 1 && seen.at(-1).key === "abc123" && seen.at(-1).token === undefined, "the test record carries your header and not the app's token", `${seen.length - before} request(s)`);
+  // A file whose columns are not recognised asks which column is which; the service then gets the right fields.
+  const csvPath = path.join(tmp("signal-lab-csv-"), "werk.csv");
+  fs.writeFileSync(csvPath, "Zeit,Maschine,Grad,Schwingung\n2025-01-15T08:00:00Z,press-01,61.5,2.1\n2025-01-15T08:00:02Z,pump-02,70.25,3.0\n");
+  await win.check('input[name="src"][value="file"]'); // "My own file" opens the file chooser
+  await win.setInputFiles("#fFile", csvPath);
+  check(await until(() => win.isVisible("#mapBox"), 10000), "a file with other column names asks which column is which");
+  await win.click("#mapApply");
+  check((await win.innerText("#formError")).startsWith("Choose a column for"), "it will not continue until the required columns are chosen", await win.innerText("#formError"));
+  for (const [field, col] of [["event_time", "Zeit"], ["device_id", "Maschine"], ["temperature_c", "Grad"], ["vibration_mm_s", "Schwingung"]]) await win.selectOption(`#map_${field}`, col);
+  await win.click("#mapApply");
+  check(await until(async () => (await win.innerText("#fileSummary")).includes("Zeit → event_time"), 10000), "after choosing, the summary shows the mapping", (await win.innerText("#fileSummary")).split("\n")[0]);
+  check(await win.isVisible("#fMap") && !(await win.isVisible("#mapBox")), "'Change columns' is offered and the choice panel closes");
+  const n1 = seen.length;
+  await win.click("#btnStart");
+  check(await until(() => seen.length > n1, 20000), "replaying the mapped file reaches your service");
+  const sent = JSON.parse(seen.at(-1).body).events;
+  check(sent.length === 2 && sent[0].device_id === "press-01" && sent[0].temperature_c === 61.5 && sent[1].vibration_mm_s === 3 && sent[0].event_id === "press-01-1", "the service gets Signal Lab's field names with numbers as numbers", JSON.stringify(sent[0]));
+  await until(async () => (await win.innerText("#rpState")) === "done", 20000);
+  await win.click("#fMap");
+  check((await win.isVisible("#mapBox")) && (await win.inputValue("#map_temperature_c")) === "Grad", "'Change columns' reopens the choice with the current columns selected");
+  await win.click("#mapCancel");
+  await win.check('input[name="src"][value="generated"]');
   await win.check('#destBox input[value="builtin"]');
   await new Promise((r) => own.close(r));
   await win.fill('#fields [name="duration_s"]', "120"); // back to the default for the checks below
@@ -128,6 +153,14 @@ check(first === 300, "events are stored in the embedded database", String(first)
 if (shotDir) await win.screenshot({ path: path.join(shotDir, "desktop-storage.png") });
 check(fs.existsSync(path.join(dataDir, "signallab.db")), "database file is created in the data folder");
 
+await win.click('[data-tab="live"]');
+await win.click("#welcomeClose");
+check(!(await win.isVisible("#welcome")), "the welcome card can be dismissed");
+await win.click('[data-theme-choice="dark"]');
+check((await win.getAttribute("html", "data-theme")) === "dark" && (await win.getAttribute('[data-theme-choice="dark"]', "aria-pressed")) === "true", "the Appearance switch can force dark");
+await sleep(400); // the choice is saved by the engine, not by the browser (the panel's address changes every launch)
+await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setBounds({ x: 120, y: 100, width: 1010, height: 710 }));
+await sleep(900); // the position is saved a moment after the last change
 await app.close();
 await sleep(1500);
 let orphan = false;
@@ -145,6 +178,10 @@ check(!/token=/i.test(log) && !/[0-9a-f]{64}/i.test(log), "log contains no acces
 app = await launch();
 win = await app.firstWindow();
 await panelReady(win);
+check(await until(async () => (await win.getAttribute("html", "data-theme")) === "dark", 8000), "the Appearance choice is remembered after a restart");
+check(!(await win.isVisible("#welcome")), "the welcome card stays dismissed after a restart");
+const size = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
+check(size.width === 1010 && size.height === 710, "the window comes back at the size it was left", `${size.width}x${size.height}`);
 const again = await stored(win);
 check(again === first, "data is still there after restarting the app", `${again} vs ${first}`);
 await app.close();

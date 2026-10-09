@@ -48,6 +48,15 @@
 <!-- LIVE -->
 <section id="tab-live" class="tab" role="tabpanel">
   <h2 class="page-title">Live</h2>
+  <div id="welcome" class="card welcome" hidden>
+    <h2>Welcome to Signal Lab</h2>
+    <ol class="steps">
+      <li><b>See it work.</b> Press <em>Run quick demo</em> below: simulated machines report in, and some cross the alert thresholds.</li>
+      <li><b>Aim it at your own service.</b> In <em>Replay</em>, choose &ldquo;My own service&rdquo;, or replay your own CSV, NDJSON or JSON file.</li>
+      <li><b>Look at the results.</b> Responses, retries and latency appear in <em>Replay</em>; stored readings can be browsed and exported in <em>Data</em>.</li>
+    </ol>
+    <div class="actions"><button type="button" id="welcomeClose">Got it</button></div>
+  </div>
   <div class="kpis">
     <div class="kpi"><span class="kpi-l">Events seen</span><b id="nEvents" class="kpi-v">0</b><span class="kpi-s">in this window</span></div>
     <div class="kpi"><span class="kpi-l">Alerts</span><b id="nAlerts" class="kpi-v">0</b><span class="kpi-s">in this window</span></div>
@@ -128,8 +137,13 @@
           <label for="fFile">Choose a file</label>
           <input id="fFile" type="file" accept=".csv,.ndjson,.jsonl,.json,.txt,text/csv,application/json">
           <div id="fileSummary" class="fileSummary" aria-live="polite"></div>
+          <div id="mapBox" class="mapBox" hidden>
+            <p id="mapIntro" class="small"></p>
+            <div id="mapFields" class="mapFields"></div>
+            <div class="actions"><button type="button" class="primary" id="mapApply">Use these columns</button><button type="button" id="mapCancel">Cancel</button></div>
+          </div>
           <label class="radio"><input type="checkbox" id="fRebase" checked> Shift the times so the newest reading is now<span class="tip" data-tip-id="rebase_time"></span></label>
-          <div class="actions"><button type="button" id="fRemove" hidden>Remove file</button></div>
+          <div class="actions"><button type="button" id="fMap" hidden>Change columns</button><button type="button" id="fRemove" hidden>Remove file</button></div>
         </div>
       </fieldset>
 
