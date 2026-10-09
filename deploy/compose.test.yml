@@ -8,7 +8,7 @@ name: signallab-test
 
 services:
   postgres:
-    image: postgres:17-alpine
+    image: ${POSTGRES_IMAGE:-postgres:17-alpine}
     environment:
       POSTGRES_USER: signallab
       POSTGRES_PASSWORD: signallab
@@ -27,6 +27,8 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
+      args:
+        GO_IMAGE: ${GO_IMAGE:-golang:1.25-alpine}
     environment:
       SIGNALLAB_DATABASE_URL: postgres://signallab:signallab@postgres:5432/signallab_test?sslmode=disable
       SIGNALLAB_AUTO_MIGRATE: "true"
