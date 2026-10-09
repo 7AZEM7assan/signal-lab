@@ -68,14 +68,19 @@ class Stack:
 
     # ---- docker compose plumbing ----
     def compose(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-        return subprocess.run(
+        done = subprocess.run(
             ["docker", "compose", "-f", str(COMPOSE_FILE), *args],
             cwd=REPO,
             env={**os.environ, **self.knobs},
             capture_output=True,
             text=True,
-            check=check,
         )
+        if check and done.returncode != 0:
+            # CalledProcessError hides docker's own message; put it in the failure text.
+            raise RuntimeError(
+                f"docker compose {' '.join(args)} failed ({done.returncode}):\n{done.stderr[-3000:]}"
+            )
+        return done
 
     def start(self) -> None:
         self.compose("up", "-d", "--build", "--wait")
