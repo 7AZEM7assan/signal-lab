@@ -26,6 +26,16 @@ const TIPS = {
   jitter_ms: "Random extra delay before each request, up to this many milliseconds.",
   start: "When the first reading happens (UTC); blank means the run ends now.",
   sequence_start: "Number of each machine's first reading; with the same seed and start time it resends exactly the same events.",
+  // Where to send and which data
+  dest: "Choose whether the readings go to this app's own service or to a service of your own, such as one you are building or testing.",
+  target_url: "The address your service accepts readings at. The app sends HTTP POST requests there.",
+  payload_format: "How the readings are packed into each request: all in one object, as a plain list, one per line, or one reading per request.",
+  target_headers: "Extra header lines added to every request, for example an Authorization key. They are kept in memory only.",
+  dataset: "Send simulated readings, or replay a CSV, NDJSON or JSON file of your own.",
+  rebase_time: "Moves every timestamp forward by the same amount so the newest reading is stamped now; many services refuse old timestamps.",
+  responses: "How many answers came back for each HTTP status code, such as 200 for OK or 429 for too busy.",
+  firsterror: "The first request that failed, with the start of what the service answered, to help you find the cause.",
+  accepted_ext: "Readings in requests that your service answered with a 2xx status, meaning it took them.",
   // Status labels
   queue: "How many readings are waiting to be saved; when the waiting line is full the service answers 429.",
   accepted: "The service checked these readings and put them in its waiting line; they are saved a moment later.",
@@ -357,6 +367,13 @@ function revealField(key) {
 
 // ---------- Replay ----------
 function updateEstimate() {
+  if (src() === "file" && dataset) {
+    const n = dataset.rows;
+    let t = "";
+    try { const r = readForm($("fields"), REPLAY_FIELDS).rate_per_s; if (r > 0) t = `, about ${(n / r).toFixed(1)} s to send`; } catch { /* ignore */ }
+    $("estimate").textContent = `${fmtInt(n)} rows from your file will be sent${t}.`;
+    return;
+  }
   try {
     const c = readForm($("fields"), REPLAY_FIELDS);
     const n = Math.floor(c.duration_s / c.interval_s) * c.devices;
@@ -389,6 +406,113 @@ function initReplay(defaults) {
   }
 }
 
+// ---------- Replay: where to send, and which data ----------
+const dest = () => document.querySelector('input[name="dest"]:checked').value;
+const src = () => document.querySelector('input[name="src"]:checked').value;
+const GENERATED_KEYS = ["seed", "devices", "duration_s", "interval_s", "anomaly_rate", "site_id", "start", "sequence_start"];
+let dataset = null; // summary of the imported file, or null
+let replayLimits = { external_rate: 2000, dataset_bytes: 32 << 20 };
+
+function isLocalAddress(raw) {
+  try {
+    const h = new URL(raw).hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    return h === "localhost" || h.endsWith(".localhost") || /^127\./.test(h) || h === "::1";
+  } catch { return false; }
+}
+function syncTargetUi() {
+  $("ownBox").hidden = dest() !== "own";
+  const raw = $("tUrl").value.trim();
+  const remote = dest() === "own" && raw !== "" && !isLocalAddress(raw);
+  $("tConfirmRow").hidden = !remote;
+  $("tRateNote").hidden = !remote;
+  $("tRateNote").textContent = remote ? `This service is not on your computer, so the rate (under Sending) must be between 1 and ${fmtInt(replayLimits.external_rate)} records per second.` : "";
+  const file = src() === "file";
+  $("fileBox").hidden = !file;
+  for (const key of GENERATED_KEYS) { const i = $("fields").querySelector(`[name="${key}"]`); if (i) i.disabled = file; }
+  updateEstimate();
+}
+function fieldError(id, msg) { const e = new Error(msg); e.fieldId = id; return e; }
+function parseHeaders(text) {
+  const out = {};
+  text.split("\n").forEach((raw, i) => {
+    const line = raw.trim();
+    if (!line) return;
+    const k = line.indexOf(":");
+    if (k < 1) throw fieldError("tHeaders", `Header line ${i + 1} should look like Name: value`);
+    out[line.slice(0, k).trim()] = line.slice(k + 1).trim();
+  });
+  return out;
+}
+// The destination and data choices as replay settings. Throws a message for the field to fix.
+function readTarget() {
+  const out = {};
+  if (dest() === "own") {
+    const url = $("tUrl").value.trim();
+    if (!url) throw fieldError("tUrl", "Enter the address of your service, or choose the built-in service");
+    out.target_url = url;
+    out.payload_format = $("tFormat").value;
+    const h = parseHeaders($("tHeaders").value);
+    if (Object.keys(h).length) out.target_headers = h;
+    out.target_confirmed = $("tConfirm").checked;
+  }
+  if (src() === "file") {
+    if (!dataset) throw fieldError("fFile", "Choose a file first, or switch back to simulated readings");
+    out.use_dataset = true;
+    out.rebase_time = $("fRebase").checked;
+  }
+  return out;
+}
+function describeDataset(d) {
+  const box = $("fileSummary"); box.replaceChildren();
+  $("fRemove").hidden = !d;
+  if (!d) return;
+  box.append(el("div", { class: "head", text: `${fmtInt(d.rows)} rows from ${d.name} (${d.format.toUpperCase()}), ${fmtInt(d.devices)} device${d.devices === 1 ? "" : "s"}` }));
+  const ul = el("ul");
+  const li = (t) => ul.append(el("li", { text: t }));
+  if (d.first_time) li(`Times: ${fmtTime(d.first_time)} to ${fmtTime(d.last_time)}`);
+  if (d.mapped) li("Columns recognised: " + Object.entries(d.mapped).map(([k, v]) => `${k} → ${v}`).join(", "));
+  if (d.ignored?.length) li("Not sent (not Signal Lab fields): " + d.ignored.join(", "));
+  if (d.derived?.length) li("Filled in for you: " + d.derived.join(", "));
+  const p = Object.entries(d.problems || {});
+  if (p.length) li(`Signal Lab's own checks would reject ${fmtInt(p.reduce((n, [, v]) => n + v, 0))} rows (${p.map(([k, v]) => `${v} ${k.replaceAll("_", " ")}`).join(", ")}). They are sent anyway, so you can see how your service reacts.`);
+  else li("Every row passes Signal Lab's own checks.");
+  li("Values are sent exactly as written in the file; units are not converted.");
+  box.append(ul);
+}
+async function uploadDataset(file) {
+  if (file.size > replayLimits.dataset_bytes) throw new Error(`That file is larger than ${Math.round(replayLimits.dataset_bytes / 1048576)} MB.`);
+  let res;
+  try {
+    res = await fetch("/app/api/replay/dataset?name=" + encodeURIComponent(file.name), { method: "PUT", headers: { "X-Requested-With": "signallab", "Content-Type": "application/octet-stream" }, body: file, cache: "no-store" });
+  } catch (e) { banner("Cannot reach the Signal Lab service. Is the app still running?"); throw e; }
+  let data = null; try { data = await res.json(); } catch { /* not JSON */ }
+  if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
+  return data.dataset;
+}
+function initTarget() {
+  for (const r of document.querySelectorAll('input[name="dest"], input[name="src"]')) r.addEventListener("change", syncTargetUi);
+  $("tUrl").addEventListener("input", syncTargetUi);
+  $("fFile").addEventListener("change", async () => {
+    const f = $("fFile").files[0];
+    if (!f) return;
+    $("formError").textContent = "";
+    $("fileSummary").textContent = "Reading the file…";
+    try {
+      dataset = await uploadDataset(f);
+      document.querySelector('input[name="src"][value="file"]').checked = true;
+    } catch (e) { $("formError").textContent = e.message; }
+    describeDataset(dataset); // the previous file stays in place when the new one is refused
+    $("fFile").value = "";
+    syncTargetUi();
+  });
+  $("fRemove").addEventListener("click", async () => {
+    try { await api("DELETE", "/app/api/replay/dataset"); } catch (e) { $("formError").textContent = e.message; return; }
+    dataset = null; describeDataset(null);
+    document.querySelector('input[name="src"][value="generated"]').checked = true;
+    syncTargetUi();
+  });
+}
+
 // What the page needs to describe a run once it finishes: the stored-row count before it started.
 let runWatch = null;
 async function startReplay(cfg) {
@@ -404,8 +528,12 @@ $("replayForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   $("formError").textContent = "";
   let cfg;
-  try { cfg = readForm($("fields"), REPLAY_FIELDS); }
-  catch (err) { $("formError").textContent = err.message; if (err.field) revealField(err.field); return; }
+  try { cfg = { ...readForm($("fields"), REPLAY_FIELDS), ...readTarget() }; }
+  catch (err) {
+    $("formError").textContent = err.message;
+    if (err.fieldId) $(err.fieldId).focus(); else if (err.field) revealField(err.field);
+    return;
+  }
   try { await startReplay(cfg); }
   catch (err) { $("formError").textContent = err.message; }
 });
@@ -456,6 +584,14 @@ async function settledStoredCount(base) {
 }
 async function finishRun(s) {
   const w = runWatch; w.reported = true;
+  $("runDoneView").hidden = !!s.external; // readings sent to your own service are not stored here
+  if (s.external) {
+    let line = `${fmtInt(s.records_done)} sent to ${s.target || "your service"}, ${fmtInt(s.accepted)} accepted, ${fmtInt(s.errored_records)} failed`;
+    if (s.throttled > 0) line += `, answered 429 ${times(s.throttled)}`;
+    if (s.gave_up_records > 0) line += `, ${fmtInt(s.gave_up_records)} gave up after retries`;
+    showRunDone((s.state === "stopped" ? "Stopped early: " : "Replay done: ") + line);
+    return;
+  }
   const stored = await settledStoredCount(w.base);
   let line = stored == null
     ? `${fmtInt(s.records_done)} sent, ${fmtInt(s.accepted)} accepted, ${fmtInt(s.rejected)} rejected`
@@ -492,19 +628,35 @@ function renderReplay(s) {
   const lat = s.latency || {};
   const rows = [
     ["Sent", `${fmtInt(s.records_done)} of ${fmtInt(s.planned)} records (${pct.toFixed(0)}%), ${fmtInt(s.batches_done)}/${fmtInt(s.batches)} batches`],
+    ["Sent to", s.external ? (s.target || "your service") : "this app's built-in service"],
+    ["Data", s.source || "–"],
     ["Elapsed", `${(s.elapsed_s || 0).toFixed(1)} s, ${fmtInt(Math.round(s.throughput_per_s || 0))} records/s`],
-    ["Accepted (queued)", fmtInt(s.accepted), "accepted"],
+    s.external ? ["Accepted (2xx answer)", fmtInt(s.accepted), "accepted_ext"] : ["Accepted (queued)", fmtInt(s.accepted), "accepted"],
     ["Rejected as invalid", fmtInt(s.rejected) + (rc ? `: ${rc}` : ""), "invalid"],
-    ["Told to slow down (429)", `${fmtInt(s.throttled)} times, ${fmtInt(s.retries)} retries`, "throttled"],
+    ["Told to slow down (429)", `${times(s.throttled)}, ${retries(s.retries)}`, "throttled"],
     ["Gave up after retries", `${fmtInt(s.gave_up_records)} records`, "gaveup"],
     ["Request errors", `${fmtInt(s.request_errors)} (${fmtInt(s.errored_records)} records)`, "errors"],
-    ["Injected faults", `${fmtInt(inj.malformed)} malformed, ${fmtInt(inj.duplicates)} duplicated, ${fmtInt(inj.late)} late`, "injected"],
-    ["Request latency", lat.count ? `p50 ${lat.p50_ms} ms, p95 ${lat.p95_ms} ms, p99 ${lat.p99_ms} ms, max ${lat.max_ms} ms` : "–", "latency"],
   ];
+  if (s.status_counts && Object.keys(s.status_counts).length) rows.push(["Responses", statusLine(s.status_counts), "responses"]);
+  if (s.first_error) rows.push(["First problem", firstErrorText(s.first_error), "firsterror"]);
+  rows.push(["Injected faults", `${fmtInt(inj.malformed)} malformed, ${fmtInt(inj.duplicates)} duplicated, ${fmtInt(inj.late)} late`, "injected"]);
+  rows.push(["Request latency", lat.count ? `p50 ${lat.p50_ms} ms, p95 ${lat.p95_ms} ms, p99 ${lat.p99_ms} ms, max ${lat.max_ms} ms` : "–", "latency"]);
   for (const [k, v, tip] of rows) box.append(stat(k, v, tip));
   if (s.state === "done" || s.state === "stopped") {
-    box.append(el("p", { class: "muted small note", text: "Accepted means queued in memory, not yet stored. See the Data and Storage tabs for what was saved." }));
+    box.append(el("p", { class: "muted small note", text: s.external
+      ? "These readings went to your service and were not stored here, so they do not appear in the Live or Data tabs. Check your service for what it kept."
+      : "Accepted means queued in memory, not yet stored. See the Data and Storage tabs for what was saved." }));
   }
+}
+const times = (n) => n === 1 ? "1 time" : `${fmtInt(n)} times`;
+const retries = (n) => n === 1 ? "1 retry" : `${fmtInt(n)} retries`;
+const STATUS_TEXT = { 200: "OK", 201: "Created", 202: "Accepted", 204: "No Content", 301: "Moved", 302: "Found", 307: "Redirect", 308: "Redirect", 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 405: "Method Not Allowed", 408: "Timeout", 409: "Conflict", 413: "Too Large", 415: "Unsupported Type", 422: "Unprocessable", 429: "Too Many Requests", 500: "Server Error", 502: "Bad Gateway", 503: "Unavailable", 504: "Gateway Timeout" };
+function statusLine(counts) {
+  return Object.entries(counts).sort((a, b) => Number(a[0]) - Number(b[0]))
+    .map(([code, n]) => `${code}${STATUS_TEXT[code] ? " " + STATUS_TEXT[code] : ""} × ${fmtInt(n)}`).join(", ");
+}
+function firstErrorText(e) {
+  return `request ${e.batch}: ${e.message}${e.body ? ` — “${e.body}”` : ""}`;
 }
 async function pollReplay() {
   try { renderReplay(await api("GET", "/app/api/replay")); } catch { /* banner already shown */ }
@@ -647,6 +799,9 @@ if (desktop) {
   showTab(location.hash.slice(1));
   const s = await refreshState().catch(() => null);
   initReplay(s?.replay_defaults || {});
+  if (s?.replay_limits) replayLimits = s.replay_limits;
+  dataset = s?.dataset || null;
+  initTarget(); describeDataset(dataset); syncTargetUi();
   applied = dataParams(false); updateExportLinks();
   await loadThresholds();
   renderDevices();

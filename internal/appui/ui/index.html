@@ -86,7 +86,44 @@
   <div class="replay-grid">
     <form id="replayForm" class="card" autocomplete="off">
       <h2>Run a replay</h2>
-      <p class="muted">Generates simulated machine readings, optionally damages them on purpose, and sends them to the service the same way any client would.</p>
+      <p class="muted">Sends machine readings to a service the way any client would, and can damage some of them on purpose. By default the readings are simulated and go to this app's own service; you can also send them to a service of your own, and use your own data file.</p>
+
+      <fieldset class="choice" id="destBox">
+        <legend>Where to send<span class="tip" data-tip-id="dest"></span></legend>
+        <label class="radio"><input type="radio" name="dest" value="builtin" checked> This app's built-in service <span class="muted small">(stays on this computer)</span></label>
+        <label class="radio"><input type="radio" name="dest" value="own"> My own service <span class="muted small">(an HTTP address you choose)</span></label>
+        <div id="ownBox" class="own" hidden>
+          <label for="tUrl">Service address<span class="tip" data-tip-id="target_url"></span></label>
+          <input id="tUrl" type="text" inputmode="url" spellcheck="false" placeholder="http://localhost:3000/ingest" aria-describedby="tUrlHelp">
+          <p id="tUrlHelp" class="muted small">The app sends HTTP POST requests to this address. The address is not saved, and only its host name is ever shown or logged.</p>
+          <label for="tFormat">Payload shape<span class="tip" data-tip-id="payload_format"></span></label>
+          <select id="tFormat">
+            <option value="batch">Batch: {"events":[ ... ]}</option>
+            <option value="array">Array: [ ... ]</option>
+            <option value="ndjson">One JSON record per line (NDJSON)</option>
+            <option value="single">One record per request</option>
+          </select>
+          <label for="tHeaders">Headers<span class="tip" data-tip-id="target_headers"></span></label>
+          <textarea id="tHeaders" rows="3" spellcheck="false" autocomplete="off" placeholder="Authorization: Bearer your-key&#10;X-Tenant: acme" aria-describedby="tHeadersHelp"></textarea>
+          <p id="tHeadersHelp" class="muted small">One per line, as <code>Name: value</code>. Kept in memory for the run only; never saved, shown again or logged.</p>
+          <label id="tConfirmRow" class="radio" hidden><input type="checkbox" id="tConfirm"> I own this service or have permission to send test traffic to it</label>
+          <p id="tRateNote" class="muted small" hidden></p>
+        </div>
+      </fieldset>
+
+      <fieldset class="choice" id="dataBox">
+        <legend>Data to send<span class="tip" data-tip-id="dataset"></span></legend>
+        <label class="radio"><input type="radio" name="src" value="generated" checked> Simulated readings <span class="muted small">(generated from the settings below)</span></label>
+        <label class="radio"><input type="radio" name="src" value="file"> My own file <span class="muted small">(CSV, NDJSON or JSON)</span></label>
+        <div id="fileBox" class="own" hidden>
+          <label for="fFile">Choose a file</label>
+          <input id="fFile" type="file" accept=".csv,.ndjson,.jsonl,.json,.txt,text/csv,application/json">
+          <div id="fileSummary" class="fileSummary" aria-live="polite"></div>
+          <label class="radio"><input type="checkbox" id="fRebase" checked> Shift the times so the newest reading is now<span class="tip" data-tip-id="rebase_time"></span></label>
+          <div class="actions"><button type="button" id="fRemove" hidden>Remove file</button></div>
+        </div>
+      </fieldset>
+
       <div id="fields" class="fields"></div>
       <p id="estimate" class="muted small"></p>
       <p id="formError" class="bad small" role="alert"></p>
@@ -154,7 +191,7 @@
     <div class="card">
       <h2>Where it lives</h2>
       <p class="path" id="sPath">–</p>
-      <p class="muted small">Everything is a single SQLite file plus <code>settings.json</code> in this folder. Nothing leaves your computer.</p>
+      <p class="muted small">Everything is a single SQLite file plus <code>settings.json</code> in this folder. Stored data stays on your computer; the only traffic that leaves it is a replay you aim at a service of your own.</p>
       <div class="actions" id="desktopActions" hidden>
         <button type="button" id="btnOpenFolder">Open folder</button>
         <button type="button" id="btnChooseFolder">Change folder…</button>
@@ -168,7 +205,7 @@
     </form>
     <div class="card wide">
       <h2>About</h2>
-      <p class="muted small">Signal Lab is a simulation. No real hardware, plant or production system is involved. <span id="aboutVersion"></span></p>
+      <p class="muted small">Signal Lab simulates machine readings by default; no real hardware or plant is involved. You can also send readings (or your own data file) to a service of your own to see how it copes with overload, duplicates and bad data. It is a test tool, not a production system. <span id="aboutVersion"></span></p>
     </div>
   </div>
 </section>

@@ -38,7 +38,8 @@ make desktop-dist          # installer / app for THIS operating system in deskto
 `<app folder>` is `~/Library/Application Support/Signal Lab` on macOS, `%APPDATA%\Signal Lab` on
 Windows and `~/.config/Signal Lab` on Linux. In the app, **Storage > Open folder** opens it and
 **Storage > Change folder...** moves the app to another folder (existing data is not moved or
-deleted). To remove everything, uninstall the app and delete that folder. Nothing is sent anywhere.
+deleted). To remove everything, uninstall the app and delete that folder. Nothing is sent anywhere,
+except a replay that you aim at a service of your own (see below).
 
 ## What the app contains
 
@@ -46,6 +47,11 @@ deleted). To remove everything, uninstall the app and delete that folder. Nothin
 - **Replay**: generate simulated readings and send them to the service. Presets: quick demo, fault
   storm, backpressure demo (small queue plus slow worker so the service answers 429), and an exact
   repeat that shows idempotency. Start, stop, and watch progress and results.
+  **Your own service and data**: instead of the built-in service, a replay can go to an HTTP address
+  you enter (with headers such as an API key, and a payload shape), and it can replay a CSV, NDJSON
+  or JSON file you import. The results show responses by status, `429` handling, the first error
+  and latency. Readings sent to your service are not stored in the app. See
+  [`docs/test-your-service.md`](../docs/test-your-service.md).
 - **Data**: filter events and alerts by device and time, page through them, and export everything
   that matches as CSV, NDJSON or JSON.
 - **Settings**: alert thresholds (applied immediately), queue size, workers, batch size and an

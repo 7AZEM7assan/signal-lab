@@ -6,7 +6,7 @@ A **simulated telemetry replay and validation lab**. It replays recorded (simula
 
 It is a focused educational/reference project for backend and systems engineering topics: Go concurrency, bounded queues and backpressure, streaming APIs, persistence, observability, reproducible replay, and automated validation.
 
-> **Honest scope.** Everything here is simulated. No real hardware, plant, or production deployment is involved, there is no hardware-in-the-loop (HIL) testing, and the only performance numbers in this repository are the local, single-machine results in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) (see [Load exercise](#load-exercise)). It is not a production industrial platform.
+> **Honest scope.** The readings are simulated unless you supply your own file. No real hardware, plant, or production deployment is involved, there is no hardware-in-the-loop (HIL) testing, and the only performance numbers in this repository are the local, single-machine results in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) (see [Load exercise](#load-exercise)). It is not a production industrial platform. The [desktop app](#the-desktop-app) can also send a replay (simulated readings or your own CSV/NDJSON/JSON file) to **a service you are building**, as a small test tool: see [Test your own service](docs/test-your-service.md).
 
 **Audience:** engineers reviewing backend/systems work, and anyone who wants a small, readable example of an ingest pipeline with explicit delivery semantics.
 
@@ -37,6 +37,23 @@ with `make desktop-dist` (needs Go and Node.js). The installers are not code-sig
 Windows show a one-time warning; [`desktop/README.md`](desktop/README.md) explains how to open the
 app, where your data lives, how it works and how it is secured. The control API behind the panel is
 described in [`docs/app-api.md`](docs/app-api.md).
+
+### Use it on your own service
+
+The Replay tab can send to **a service of your own** instead of the built-in one, and replay **your
+own data file**. Give it an HTTP address, optional headers (for example an API key), and a payload
+shape (`{"events":[...]}`, a bare array, NDJSON, or one record per request); import a CSV, NDJSON or
+JSON file of readings (common column names are recognised); then add faults on purpose: broken,
+duplicated and late records, bursts, a rate. The results show the responses by status, how `429`
+and retries went, the first error with the start of what your service answered, and latency.
+
+```bash
+python3 examples/toy_receiver.py     # a toy service to try it against, no install
+```
+
+Nothing about your service is kept: header values live in memory for the run, only the host name is
+ever shown or logged, and the app's own token is never sent to it. The guide has the details and
+the limits: [`docs/test-your-service.md`](docs/test-your-service.md).
 
 The desktop app runs the same ingest pipeline, validation, alerting and WebSocket hub as the
 PostgreSQL service; only the store differs (SQLite instead of PostgreSQL, with the same idempotency
@@ -458,7 +475,7 @@ If you record numbers, record them as local results with the environment: CPU mo
 
 ## Security notes (local demo)
 
-- Everything binds to `127.0.0.1`; PostgreSQL and the Go service are not published at all. There is **no authentication or TLS**. Do not expose these ports.
+- Everything binds to `127.0.0.1`; PostgreSQL and the Go service are not published at all. (The only outbound traffic is a desktop-app replay that you aim at a service of your own.) There is **no authentication or TLS**. Do not expose these ports.
 - The default database password in compose (`signallab`) is a well-known local-demo value, not a secret; override it via `.env` if the machine is shared. `.env` is git-ignored.
 - `/metrics` and `/readyz` are proxied by NGINX for convenience (the monitor page reads them). In any shared deployment, keep metrics on an internal network.
 - The container runs as a non-root user on a distroless image. pprof is off by default.
@@ -503,7 +520,7 @@ internal/alert/         threshold rules
 internal/pipeline/      bounded queue, workers, retry, drain
 internal/store/         PostgreSQL access, migrations (embedded SQL)
 internal/sqlitestore/   embedded SQLite store used by the app (same semantics as store/)
-internal/lab/           in-process generator, fault planner and replay runner (the app's replay)
+internal/lab/           in-process generator, file import, fault planner and replay runner (to the built-in service or your own)
 internal/appctl/        the app's control plane: engine, settings, control API, security checks
 internal/appui/         the embedded control panel (plain HTML/CSS/JS, strict CSP)
 internal/hub/           WebSocket fan-out and slow-client policy
@@ -512,6 +529,7 @@ internal/metrics/       Prometheus instruments
 internal/testdb/        isolated-schema helper for integration tests
 internal/e2e/           ingest -> DB -> HTTP -> WebSocket integration tests
 desktop/                Electron shell, packaging config and end-to-end smoke test
+examples/               toy_receiver.py: a tiny service to try the app against
 sim/                    Python simulator, replayer, fault injector, pytest suites (unit + SIL)
 sim/tools/              optional developer tools (screenshot capture, demo recorder)
 scripts/                ci.sh (local CI) and the opt-in pre-push hook
@@ -519,7 +537,7 @@ data/                   sample dataset and its expected alerts
 deploy/                 nginx, prometheus, and the disposable test compose file
 web/                    the small monitor page (screenshots in docs/screenshots/)
 demo/                   static, recorded-replay version of the monitor (no backend)
-docs/                   OpenAPI definition and the portfolio case study
+docs/                   OpenAPI definition, the app's control API, the test-your-service guide and the portfolio case study
 LICENSE, CONTRIBUTING.md, SECURITY.md, .github/   license, contribution and security policy, CI workflow, issue and PR templates
 ```
 

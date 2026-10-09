@@ -55,14 +55,14 @@ func PlanRecords(records []Record, c Config) ([]Planned, FaultCounts) {
 	planned := make([]Planned, 0, len(records))
 	var first time.Time
 	if len(records) > 0 {
-		first, _ = time.Parse(time.RFC3339, records[0]["event_time"].(string))
+		first, _ = time.Parse(time.RFC3339, timeOf(records[0]))
 	}
 	for _, rec := range records {
 		uMalformed, uLate, uDup := rng.Float64(), rng.Float64(), rng.Float64()
 		kindChoice := malformedKinds[rng.IntN(len(malformedKinds))]
 
 		tRel := 0.0
-		if ts, err := time.Parse(time.RFC3339, rec["event_time"].(string)); err == nil {
+		if ts, err := time.Parse(time.RFC3339, timeOf(rec)); err == nil {
 			tRel = ts.Sub(first).Seconds()
 		}
 
@@ -78,8 +78,9 @@ func PlanRecords(records []Record, c Config) ([]Planned, FaultCounts) {
 			for k, v := range rec {
 				late[k] = v
 			}
-			ts, _ := time.Parse(time.RFC3339, rec["event_time"].(string))
-			late["event_time"] = FormatTime(ts.Add(-time.Duration(c.LateSeconds * float64(time.Second))))
+			if ts, err := time.Parse(time.RFC3339, timeOf(rec)); err == nil {
+				late["event_time"] = FormatTime(ts.Add(-time.Duration(c.LateSeconds * float64(time.Second))))
+			}
 			rec = late
 			counts.Late++
 			kind = "late"
@@ -95,6 +96,13 @@ func PlanRecords(records []Record, c Config) ([]Planned, FaultCounts) {
 		counts.MalformedByKind = nil
 	}
 	return planned, counts
+}
+
+// timeOf is the record's event_time text, or "" when it is missing or not text (imported files
+// may contain anything).
+func timeOf(r Record) string {
+	s, _ := r["event_time"].(string)
+	return s
 }
 
 func mustJSON(v any) []byte {

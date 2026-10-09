@@ -12,6 +12,7 @@ import (
 
 	"signallab/internal/api"
 	"signallab/internal/config"
+	"signallab/internal/event"
 	"signallab/internal/hub"
 	"signallab/internal/lab"
 	"signallab/internal/metrics"
@@ -117,6 +118,13 @@ func (e *Engine) Info() Info {
 	defer e.mu.RUnlock()
 	return Info{Settings: e.settings, QueueDepth: e.cur.pipe.Depth(), QueueCapacity: e.cur.pipe.Capacity(),
 		WSClients: e.cur.hub.Len(), EngineStarts: e.restarts, MaxBatch: e.cur.cfg.MaxBatchEvents}
+}
+
+// Limits are the plausibility bounds the built-in service applies to readings. They are used to
+// preview how an imported file would fare against the Signal Lab schema.
+func (e *Engine) Limits() event.Limits {
+	c := e.current().cfg
+	return event.Limits{TempMinC: c.TempMinC, TempMaxC: c.TempMaxC, VibMaxMMS: c.VibMaxMMS, MaxFutureSkew: c.MaxFutureSkew}
 }
 
 // MaxBatch is the service's per-request event limit.
