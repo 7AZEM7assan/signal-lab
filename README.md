@@ -110,8 +110,8 @@ launch); the Linux and Windows commands have not been run on those systems.
 **Tested so far** (by the author): macOS on Apple silicon and Linux. On the Apple silicon Mac the
 0.2.0 release file was downloaded in a browser and checked against its published checksum, the
 first-launch warning was passed, and the quick demo, a replay to the toy receiver, a file import,
-quitting and reopening (the stored data was still there) were run. The 0.2.1 macOS release file was
-then downloaded with the terminal command below, matched its published checksum, and passed the
+quitting and reopening (the stored data was still there) were run. The 0.2.1 and 0.2.2 macOS release files were
+then downloaded with a terminal command, matched their published checksums, and passed the
 whole end-to-end test (window, replay to a service of your own, file import, data kept after a
 restart, no access token in the log). The Intel Mac and Windows builds are produced by this
 repository's CI but have not been run on a real machine yet.
