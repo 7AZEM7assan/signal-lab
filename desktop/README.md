@@ -13,12 +13,13 @@ paid developer certificates, so each operating system shows a one-time warning:
 
 | System | Download | First launch |
 |---|---|---|
-| **macOS** (Apple Silicon or Intel) | `Signal-Lab-<version>-mac-arm64.dmg` / `-x64.dmg` | Drag *Signal Lab* to Applications. If macOS says it cannot verify the developer, open **System Settings > Privacy & Security** and click **Open Anyway**, or run `xattr -dr com.apple.quarantine "/Applications/Signal Lab.app"` once. |
-| **Windows** (x64 or ARM64) | `Signal-Lab-<version>-win-x64.exe` (installer) or `.zip` (no install) | SmartScreen may say "Windows protected your PC": click **More info > Run anyway**. |
+| **macOS** (Apple Silicon or Intel) | `Signal-Lab-<version>-mac-arm64.dmg` / `-x64.dmg` | Drag *Signal Lab* to Applications. macOS says "Signal Lab was blocked to protect your Mac": open **System Settings > Privacy & Security** and click **Open Anyway** (if a dialog offers *Move to Trash*, choose **Done**), or run `xattr -dr com.apple.quarantine "/Applications/Signal Lab.app"` once. |
+| **Windows** (x64 or ARM64) | `Signal-Lab-<version>-win-x64.exe` or `-win-arm64.exe` (installer; a combined `Signal-Lab-<version>-win.exe` is attached too), or the `.zip` (no install) | SmartScreen may say "Windows protected your PC": click **More info > Run anyway**. |
 | **Linux** (x64) | `Signal-Lab-<version>-linux-x86_64.AppImage` or `.tar.gz` | `chmod +x Signal-Lab-*.AppImage && ./Signal-Lab-*.AppImage` |
 
-The download is about 120-160 MB because it includes the Electron runtime; the Signal Lab engine
-itself is an 18 MB program.
+The download is about 130-160 MB because it includes the Electron runtime; the Signal Lab engine
+itself is an 18 MB program. Tested by the author so far: macOS on Apple silicon and Linux; the
+Intel Mac and Windows builds are made by CI and not yet run on a real machine.
 
 **Building it yourself is the most reliable route**, and it avoids the warnings above on macOS:
 
