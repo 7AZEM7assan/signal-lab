@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { signingMode, macSigning } = require("../scripts/signing.js");
+const { block, apply } = require("../scripts/download-links.js");
+import fs from "node:fs";
 
 const CERT = { CSC_LINK: "base64-of-the-p12", CSC_KEY_PASSWORD: "x" };
 const APPLE_ID = { APPLE_ID: "me@example.com", APPLE_APP_SPECIFIC_PASSWORD: "abcd-efgh-ijkl-mnop", APPLE_TEAM_ID: "ABCDE12345" };
@@ -71,4 +73,15 @@ test("the real electron-builder config follows the environment", () => {
   const { mac: _a, ...restPlain } = plain, { mac: _b, ...restSigned } = signed;
   assert.deepEqual(restSigned, restPlain);
   assert.ok(plain.files.includes("startup-error.html") && plain.files.includes("preload-startup.js"), "the startup error screen must be packaged");
+});
+
+test("README download links match the version in package.json", () => {
+  // After raising the version, run: node scripts/download-links.js --write  (then publish the release).
+  const { version } = require("../package.json");
+  const text = fs.readFileSync(path.join(root, "..", "README.md"), "utf8");
+  assert.ok(text.includes(block(version)), `README.md download links are not for v${version}: run node scripts/download-links.js --write`);
+  assert.equal(apply(text, version), text, "applying the links again must change nothing");
+  for (const name of ["mac-arm64.dmg", "mac-x64.dmg", "win-x64.exe", "win-arm64.exe", "linux-x86_64.AppImage", "linux-x64.tar.gz"]) {
+    assert.ok(text.includes(`/releases/download/v${version}/Signal-Lab-${version}-${name}`), name);
+  }
 });
