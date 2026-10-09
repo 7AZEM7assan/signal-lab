@@ -1,0 +1,35 @@
+name: pages
+
+# Publishes the recorded demo (demo/index.html and demo/recording.json) as a static web page, so people can
+# see Signal Lab working without installing anything. The page contains no server and makes no network request
+# except loading its own recording.
+on:
+  push:
+    branches: [main]
+    paths: ["demo/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy the recorded demo
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: demo
+      - id: deployment
+        uses: actions/deploy-pages@v4
