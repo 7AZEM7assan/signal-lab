@@ -49,6 +49,55 @@ Not sure which Mac you have? Apple menu > **About This Mac**: "Chip: Apple M..."
 "Processor: Intel..." is Intel. Each file is roughly 130-160 MB because it includes the Electron
 runtime. `.zip` versions of the Mac and Windows builds (no installer) are attached too.
 
+#### Download from a terminal
+
+Prefer a command line? These ask GitHub for the newest release, so you do not need to know the
+version number. They download only the installer for your system.
+
+**macOS** (Terminal or any shell; picks Apple silicon or Intel for you):
+
+```bash
+case "$(uname -m)" in arm64) P=mac-arm64 ;; *) P=mac-x64 ;; esac
+URL=$(curl -sL https://api.github.com/repos/7AZEM7assan/signal-lab/releases/latest | grep -o "https://[^\"]*$P\.dmg" | head -1)
+curl -L -o Signal-Lab.dmg "$URL"
+
+# install (if Signal Lab is already in Applications, move that copy to the Trash first)
+hdiutil attach -nobrowse -quiet -mountpoint /tmp/signal-lab-dmg Signal-Lab.dmg
+cp -R "/tmp/signal-lab-dmg/Signal Lab.app" /Applications/
+hdiutil detach -quiet /tmp/signal-lab-dmg
+open "/Applications/Signal Lab.app"
+```
+
+**Linux** (x64):
+
+```bash
+URL=$(curl -sL https://api.github.com/repos/7AZEM7assan/signal-lab/releases/latest | grep -o "https://[^\"]*linux-x86_64\.AppImage" | head -1)
+curl -L -o Signal-Lab.AppImage "$URL"
+chmod +x Signal-Lab.AppImage && ./Signal-Lab.AppImage
+```
+
+**Windows** (PowerShell; use `*win-arm64.exe` on ARM PCs):
+
+```powershell
+$ProgressPreference = 'SilentlyContinue'   # much faster downloads in Windows PowerShell
+$r = Invoke-RestMethod https://api.github.com/repos/7AZEM7assan/signal-lab/releases/latest
+$u = ($r.assets | Where-Object name -like '*win-x64.exe').browser_download_url
+Invoke-WebRequest $u -OutFile Signal-Lab-setup.exe
+.\Signal-Lab-setup.exe
+```
+
+With the [GitHub CLI](https://cli.github.com/) installed, one command works on every system, for
+example `gh release download --repo 7AZEM7assan/signal-lab --pattern '*mac-arm64.dmg'` (change the
+pattern to `*mac-x64.dmg`, `*win-x64.exe` or `*linux-x86_64.AppImage`).
+
+To check a file, compare its SHA-256 with the value shown next to it on the release page:
+`shasum -a 256 Signal-Lab.dmg` (macOS, Linux) or `Get-FileHash .\Signal-Lab-setup.exe` (Windows).
+
+A file fetched from a terminal is not marked as "downloaded from the internet", so macOS normally
+does not show the first-launch warning below. The apps are still not code-signed. Only the macOS
+steps have been run on a real machine (the download, checksum and install steps, not yet a first
+launch); the Linux and Windows commands have not been run on those systems.
+
 **Tested so far** (by the author): macOS on Apple silicon, and Linux. The Intel Mac and Windows
 builds are produced by this repository's CI but have not been run on a real machine yet.
 <!-- Update the line above as more platforms are tried. -->
