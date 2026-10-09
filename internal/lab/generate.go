@@ -57,6 +57,22 @@ type Config struct {
 	BurstEvery    int     `json:"burst_every"` // every Nth batch starts a burst (0 = off)
 	BurstSize     int     `json:"burst_size"`  // batches released together in a burst
 	JitterMS      float64 `json:"jitter_ms"`
+
+	// Destination. An empty TargetURL sends to the app's own built-in service. With a TargetURL the
+	// replay is sent to a service of the user's own: TargetHeaders are added to every request (for
+	// example an API key), PayloadFormat is one of batch (default), array, ndjson or single, and
+	// TargetConfirmed says the user owns the service or may test it (required unless it runs on
+	// this computer). Header values and the address's query string are never shown or logged.
+	TargetURL       string            `json:"target_url"`
+	TargetHeaders   map[string]string `json:"target_headers"`
+	PayloadFormat   string            `json:"payload_format"`
+	TargetConfirmed bool              `json:"target_confirmed"`
+
+	// Data. UseDataset replays the file the user imported instead of generating readings (the
+	// dataset fields above are then ignored); RebaseTime shifts its timestamps so the latest one
+	// is now.
+	UseDataset bool `json:"use_dataset"`
+	RebaseTime bool `json:"rebase_time"`
 }
 
 // Defaults returns a small, quick run with no faults.
@@ -118,6 +134,7 @@ func (c Config) Validate(maxBatch int) error {
 			bad("start must be an RFC 3339 time such as 2025-01-15T08:00:00Z")
 		}
 	}
+	errs = append(errs, c.validateTarget()...)
 	return errors.Join(errs...)
 }
 

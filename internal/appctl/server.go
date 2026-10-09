@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -50,6 +51,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /app/api/replay", s.handleReplayStatus)
 	mux.HandleFunc("POST /app/api/replay/start", s.handleReplayStart)
 	mux.HandleFunc("POST /app/api/replay/stop", s.handleReplayStop)
+	mux.HandleFunc("GET /app/api/replay/dataset", s.handleDatasetGet)
+	mux.HandleFunc("PUT /app/api/replay/dataset", s.handleDatasetPut)
+	mux.HandleFunc("DELETE /app/api/replay/dataset", s.handleDatasetDelete)
 	mux.HandleFunc("GET /app/api/settings", s.handleSettingsGet)
 	mux.HandleFunc("PUT /app/api/settings", s.handleSettingsPut)
 	mux.HandleFunc("POST /app/api/settings/reset", s.handleSettingsReset)
@@ -163,7 +167,7 @@ func writeErr(w http.ResponseWriter, status int, code, msg string) {
 
 // decodeStrict reads a small JSON body into v, rejecting unknown fields and trailing data.
 func decodeStrict(w http.ResponseWriter, r *http.Request, v any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<18)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
@@ -188,6 +192,8 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version": s.Version, "started_at": s.Started.UTC(), "data_dir": s.DataDir,
 		"engine": s.Engine.Info(), "storage": st, "defaults": DefaultSettings(), "replay_defaults": lab.Defaults(),
+		"dataset":       s.Engine.Runner.DatasetSummary(),
+		"replay_limits": map[string]any{"external_batch": lab.MaxExternalBatch, "external_rate": lab.MaxExternalRate, "dataset_bytes": lab.MaxDatasetBytes, "dataset_rows": lab.MaxDatasetRows},
 	})
 }
 
@@ -200,9 +206,12 @@ func (s *Server) handleReplayStart(w http.ResponseWriter, r *http.Request) {
 	if !decodeStrict(w, r, &cfg) {
 		return
 	}
+	// The built-in service needs the app's token. A service of the user's own never gets it: the
+	// runner builds that target from the request itself and ignores these headers.
 	target := lab.Target{
-		BaseURL: "http://127.0.0.1:" + strconv.Itoa(s.Port),
-		Headers: map[string]string{TokenHeader: s.Token},
+		BaseURL:   "http://127.0.0.1:" + strconv.Itoa(s.Port),
+		Headers:   map[string]string{TokenHeader: s.Token},
+		UserAgent: "SignalLab/" + s.Version,
 	}
 	snap, err := s.Engine.Runner.Start(cfg, target, s.Engine.MaxBatch())
 	switch {
@@ -211,13 +220,68 @@ func (s *Server) handleReplayStart(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeErr(w, http.StatusBadRequest, "invalid_replay", err.Error())
 	default:
-		s.Log.Info("replay started", "planned", snap.Planned, "batches", snap.Batches, "seed", cfg.Seed)
+		// Only the host is logged: an address may carry a key in its path or query string.
+		s.Log.Info("replay started", "planned", snap.Planned, "batches", snap.Batches, "source", snap.Source, "target", snap.Target)
 		writeJSON(w, http.StatusAccepted, snap)
 	}
 }
 
 func (s *Server) handleReplayStop(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.Engine.Runner.Stop())
+}
+
+func (s *Server) handleDatasetGet(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"dataset": s.Engine.Runner.DatasetSummary()})
+}
+
+// handleDatasetPut imports a CSV, NDJSON or JSON file sent as the request body. It is kept in
+// memory only, for replays that choose "use my own file".
+func (s *Server) handleDatasetPut(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, lab.MaxDatasetBytes)
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			writeErr(w, http.StatusRequestEntityTooLarge, "file_too_large", fmt.Sprintf("the file is larger than %d MB", lab.MaxDatasetBytes>>20))
+			return
+		}
+		writeErr(w, http.StatusBadRequest, "invalid_dataset", "could not read the file: "+err.Error())
+		return
+	}
+	ds, err := lab.ParseDataset(cleanFileName(r.URL.Query().Get("name")), raw, s.Engine.Limits(), time.Now())
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_dataset", err.Error())
+		return
+	}
+	s.Engine.Runner.SetDataset(ds)
+	s.Log.Info("file imported", "rows", ds.Summary.Rows, "format", ds.Summary.Format)
+	writeJSON(w, http.StatusOK, map[string]any{"dataset": ds.Summary})
+}
+
+func (s *Server) handleDatasetDelete(w http.ResponseWriter, _ *http.Request) {
+	s.Engine.Runner.SetDataset(nil)
+	writeJSON(w, http.StatusOK, map[string]any{"dataset": nil})
+}
+
+// cleanFileName keeps only a short, printable base name for display.
+func cleanFileName(name string) string {
+	name = strings.TrimSpace(name)
+	if i := strings.LastIndexAny(name, `/\`); i >= 0 {
+		name = name[i+1:]
+	}
+	name = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, name)
+	if name == "" {
+		return "imported file"
+	}
+	if r := []rune(name); len(r) > 80 {
+		name = string(r[:80])
+	}
+	return name
 }
 
 func (s *Server) handleSettingsGet(w http.ResponseWriter, _ *http.Request) {
