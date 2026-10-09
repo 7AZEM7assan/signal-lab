@@ -35,7 +35,7 @@ body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 var(--font
 a { color:var(--accent); text-decoration:none; }
 a:hover { text-decoration:underline; }
 p a, li a, .foot a { text-decoration:underline; text-underline-offset:2px; }
-code { font-family:var(--mono); font-size:.92em; background:var(--hover); padding:1px 5px; border-radius:5px; }
+code { font-family:var(--mono); font-size:.92em; color:var(--fg); background:var(--hover); padding:1px 5px; border-radius:5px; }
 h1 { font-size:15px; margin:0; font-weight:600; }
 h2 { font-size:15px; margin:0 0 10px; font-weight:600; letter-spacing:-.01em; }
 .muted { color:var(--muted); }
@@ -266,3 +266,13 @@ label.radio input { margin:0; flex:none; }
 .lat-bar { height:6px; border-radius:3px; background:var(--track); overflow:hidden; }
 .lat-bar > div { height:100%; background:var(--accent-fill); border-radius:3px; }
 .lat-v { text-align:right; font-weight:600; font-size:12px; }
+
+/* ---- choosing which column is which, and the welcome card ---- */
+.mapBox { margin-top:8px; padding:12px 14px; border-radius:12px; background:var(--card); box-shadow:var(--shadow); }
+.mapBox p { margin:0 0 10px; }
+.mapFields { display:grid; gap:10px 14px; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); }
+.mapFields label { display:flex; flex-direction:column; gap:4px; font-size:12px; font-weight:500; color:var(--muted); }
+.mapFields select { width:100%; }
+.welcome { margin-bottom:14px; }
+.welcome .steps { margin:0 0 4px; padding-left:20px; display:grid; gap:6px; }
+.welcome em { font-style:normal; font-weight:600; }
