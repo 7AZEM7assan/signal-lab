@@ -76,6 +76,13 @@ The file needs a time, a device and the two measurements. Common column names ar
 | `sequence` | `seq`, `sequence_number`, `counter` (optional) |
 | `site_id` | `site`, `plant`, `plant_id`, `facility` (optional) |
 
+**Other column names?** If the app cannot tell which column is the time, the machine, the temperature or the
+vibration, it shows your file's columns and asks you to choose one for each field (event id, sequence
+number and site are optional). Columns you do not choose are not sent. After importing, **Change columns**
+reopens that choice. Your file is never modified.
+
+![Choosing which column is which](screenshots/app-columns.png)
+
 An exact Signal Lab name always wins over an alias. Other columns are **not sent** (the summary
 lists them). The app's own CSV export imports as it is (`received_at` is skipped), so you can
 export a run, edit it, and replay it.
@@ -131,8 +138,9 @@ stored in the app**, so they do not appear in the Live or Data tabs: look in you
 
 ## Limitations
 
-* Readings always use the Signal Lab field names and units. There is no field mapping or template
-  for another schema, and unknown columns in your file are dropped.
+* Readings always use the Signal Lab field names and units. You can choose which of your columns
+  feeds each field, but there is no template for another schema, no unit conversion, and columns you
+  do not choose are dropped.
 * It sends `POST` requests with a static set of headers. There are no login flows, token refresh,
   request signing or other methods.
 * It does not check what your service answers beyond the status (and the Signal Lab acknowledgement
