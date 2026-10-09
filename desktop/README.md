@@ -7,7 +7,7 @@ stores everything in one local SQLite file.
 
 ## Install
 
-Installers are attached to each [GitHub release](https://github.com/7AZEM7assan/signal-lab/releases)
+Direct download links for the newest version are in the [main README](../README.md#download). Installers are attached to each [GitHub release](https://github.com/7AZEM7assan/signal-lab/releases)
 (built by `.github/workflows/desktop.yml`). They are **not code-signed**, because signing needs
 paid developer certificates, so each operating system shows a one-time warning:
 
@@ -100,6 +100,12 @@ your browser, so it is locked down:
 - the panel runs with a strict content security policy (no inline or third-party code);
 - the Electron window uses context isolation, the sandbox, no Node.js access, no pop-ups, no
   navigation away, no browser permissions, and exposes only two folder actions to the page.
+
+## Releasing a new version
+
+1. Raise `version` in `package.json` (`npm version X.Y.Z --no-git-tag-version`).
+2. Run `node scripts/download-links.js --write` so the README's download links name the new files; the test in `test/config.test.mjs` fails until you do.
+3. Merge, then publish a release tagged `vX.Y.Z` on `main`: the `desktop` workflow builds the installers and attaches them.
 
 ## Develop
 
