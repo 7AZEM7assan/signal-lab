@@ -101,8 +101,16 @@ launch); the Linux and Windows commands have not been run on those systems.
 **Tested so far** (by the author): macOS on Apple silicon and Linux. On the Apple silicon Mac the
 0.2.0 release file was downloaded in a browser and checked against its published checksum, the
 first-launch warning was passed, and the quick demo, a replay to the toy receiver, a file
-import and quitting were run. The Intel Mac and Windows builds are produced by this repository's CI
-but have not been run on a real machine yet.
+import, quitting and reopening (the stored data was still there) were run. The Intel Mac and
+Windows builds are produced by this repository's CI but have not been run on a real machine yet.
+
+**Found a problem?** Please [open an issue](https://github.com/7AZEM7assan/signal-lab/issues/new/choose).
+It helps to say which system you use (for example macOS 15 on Apple silicon, or Windows 11), which
+file you installed, what you did and what you saw. The app's log is in
+`~/Library/Application Support/Signal Lab/logs/` on macOS, `%APPDATA%\Signal Lab\logs\` on Windows
+and `~/.config/Signal Lab/logs/` on Linux; it does not contain the app's access token, so you can
+paste the relevant lines. For a security problem, use the private route in
+[`SECURITY.md`](SECURITY.md) instead.
 <!-- Update the line above as more platforms are tried. -->
 
 **The first launch shows a warning.** The apps are not code-signed (signing needs paid developer

@@ -153,7 +153,8 @@ shipped next to the app) and the Go modules listed in `THIRD_PARTY_NOTICES.txt` 
 
 - Tested: the Linux x64 build (source tree and packaged), with the smoke test above, and the
   macOS Apple silicon build from the 0.2.0 release page (downloaded in a browser: first-launch
-  warning, quick demo, a replay to the toy receiver, a file import, quit).
+  warning, quick demo, a replay to the toy receiver, a file import, quit, reopen with the data
+  kept).
 - Built by the release workflow but **not tested by the author**: the Intel Mac and Windows
   installers. Please open an issue if one does not start.
 - Not included: code signing, notarization and automatic updates. Updating means installing the
