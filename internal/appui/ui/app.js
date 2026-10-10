@@ -342,7 +342,9 @@ const PRESETS = [
     note: "Also sets a small queue and a slow worker in Settings so the queue fills and the service answers 429." },
   { name: "Repeat exactly (idempotency)", tip: "idempotency", cfg: { start: "2025-01-15T08:00:00Z", sequence_start: 1000 },
     note: "Run this twice: the second run stores nothing new, because every event already exists." },
-  { name: "Find the limit", cfg: { devices: 20, duration_s: 1200, interval_s: 1, rate_per_s: 100, ramp_to_per_s: 3000, ramp_s: 20, batch_size: 50, concurrency: 8, retries: 0 }, note: "Starts at 100 records a second and climbs to 3,000 over 20 seconds, so the chart shows where the service starts saying 429 or slowing down." },
+  { name: "Find the limit", cfg: { devices: 20, duration_s: 1200, interval_s: 1, rate_per_s: 100, ramp_to_per_s: 3000, ramp_s: 20, batch_size: 50, concurrency: 8, retries: 0 },
+    settings: { queue_capacity: 1000, workers: 4, worker_batch_size: 100, lab_worker_delay_ms: 0 },
+    note: "Starts at 100 records a second and climbs to 3,000 over 20 seconds, so the chart shows where the service starts saying 429 or slowing down. Also puts the queue and workers in Settings back to the app's defaults, so the result can be compared from one run to the next." },
 ];
 let replayDefaults = {};
 
@@ -447,6 +449,7 @@ function updateEstimate() {
     $("estimate").textContent = Number.isFinite(n) ? `About ${fmtInt(n)} readings will be generated${t}.` : "";
   } catch { $("estimate").textContent = ""; }
 }
+let presetBusy = false;
 function initReplay(defaults) {
   replayDefaults = defaults;
   buildForm($("fields"), REPLAY_FIELDS, defaults);
@@ -463,8 +466,10 @@ function initReplay(defaults) {
       updateEstimate();
       let note = p.note;
       if (p.settings) {
+        presetBusy = true; $("btnStart").disabled = true; // the service is rebuilt with the new settings; wait for it
         try { await api("PUT", "/app/api/settings", p.settings); await loadThresholds(); }
         catch (e) { $("formError").textContent = "Could not apply the preset's settings: " + e.message; note = ""; }
+        finally { presetBusy = false; $("btnStart").disabled = false; }
       }
       $("estimate").textContent += " " + note + (p.tip ? " " + TIPS[p.tip] : "");
     });
@@ -803,7 +808,7 @@ function renderReplay(s) {
   setPill($("rpState"), s.state, STATE_CLS[s.state]);
   setPill($("chipReplay"), "replay: " + s.state, STATE_CLS[s.state]);
   setPill($("rpMiniState"), s.state, STATE_CLS[s.state]);
-  $("btnStart").disabled = running; $("btnStop").disabled = !running;
+  $("btnStart").disabled = running || presetBusy; $("btnStop").disabled = !running;
   const pct = s.planned ? Math.min(100, (100 * s.records_done) / s.planned) : 0;
   $("rpBar").style.width = pct + "%"; $("rpMiniBar").style.width = pct + "%";
   $("rpMiniText").textContent = s.state === "idle" ? "Ready to run"
@@ -811,7 +816,7 @@ function renderReplay(s) {
   if (running && !runWatch) runWatch = { startedAt: s.started_at, base: null, reported: false }; // run started before this page loaded
   if ((s.state === "done" || s.state === "stopped") && runWatch && !runWatch.reported && runWatch.startedAt === s.started_at) finishRun(s);
   const box = $("rpStats"); box.replaceChildren();
-  if (s.state === "idle") { $("rpChart").hidden = true; lastTimelineText = ""; $("rpCopy").hidden = true; box.append(el("p", { class: "muted", text: "No replay has run yet." })); return; }
+  if (s.state === "idle") { $("rpReport").hidden = true; $("rpReportJson").hidden = true; $("rpChart").hidden = true; lastTimelineText = ""; $("rpCopy").hidden = true; box.append(el("p", { class: "muted", text: "No replay has run yet." })); return; }
   const rc = Object.entries(s.rejection_counts || {}).map(([k, v]) => `${v} ${k.replaceAll("_", " ")}`).join(", ");
   const inj = s.injected || {};
   const lat = s.latency || {};
@@ -849,8 +854,149 @@ async function refreshTimeline(s) {
   const live = s.state === "running", now = Date.now(), key = `${s.started_at}|${s.state}`;
   if (live ? now - tlFetched.at < 1500 : tlFetched.key === key) return;
   tlFetched = { key, at: now };
+  if (!live) { $("rpReport").hidden = false; $("rpReportJson").hidden = false; setTimeout(loadHistory, 800); }
   try { drawTimeline(await api("GET", "/app/api/replay/timeline")); } catch { /* the chart is optional */ }
 }
+
+// ---- your own scenarios: replay settings saved by name (never header values or an address's query string) ----
+let scenarios = [];
+async function loadScenarios() {
+  try { scenarios = (await api("GET", "/app/api/scenarios")).scenarios || []; } catch { scenarios = []; }
+  const box = $("myScenarios"); box.replaceChildren();
+  for (const sc of scenarios) {
+    const use = el("button", { type: "button", class: "scUse", text: sc.name, title: "Load these settings" });
+    use.addEventListener("click", () => applyScenario(sc));
+    const del = el("button", { type: "button", class: "scDel", text: "×", "aria-label": `Delete the scenario ${sc.name}`, title: "Delete this scenario" });
+    del.addEventListener("click", async () => {
+      try { await api("DELETE", "/app/api/scenarios?name=" + encodeURIComponent(sc.name)); $("scMsg").textContent = `Deleted “${sc.name}”.`; await loadScenarios(); }
+      catch (e) { $("scMsg").textContent = e.message; }
+    });
+    box.append(el("span", { class: "scChip" }, use, del));
+  }
+}
+function applyScenario(sc) {
+  const c = sc.config || {};
+  $("formError").textContent = "";
+  setFormValues($("fields"), REPLAY_FIELDS, { ...replayDefaults, ...c });
+  const own = !!c.target_url;
+  document.querySelector(`input[name="dest"][value="${own ? "own" : "builtin"}"]`).checked = true;
+  $("tUrl").value = own ? c.target_url : "";
+  if (own) $("tFormat").value = c.payload_format || "batch";
+  $("tHeaders").value = ""; $("tConfirm").checked = false;
+  let note = `Loaded “${sc.name}”.`;
+  if (own) note += " Enter the headers again if your service needs them" + (!isLocalAddress(c.target_url) ? " and tick the permission box." : ".");
+  if (c.use_dataset) {
+    if (dataset) { document.querySelector('input[name="src"][value="file"]').checked = true; $("fRebase").checked = c.rebase_time !== false; }
+    else note += " It replays your own file: import the file first.";
+  } else document.querySelector('input[name="src"][value="generated"]').checked = true;
+  syncTargetUi(); syncAccordions(); updateEstimate();
+  $("scMsg").textContent = note;
+}
+function currentScenarioConfig() {
+  const cfg = { ...readForm($("fields"), REPLAY_FIELDS), ...readTarget(false) };
+  delete cfg.target_headers; delete cfg.target_confirmed;
+  if (src() === "file") { cfg.use_dataset = true; cfg.rebase_time = $("fRebase").checked; }
+  return cfg;
+}
+$("scSaveOpen").addEventListener("click", () => { $("scSaveBox").hidden = false; $("scName").focus(); });
+$("scCancel").addEventListener("click", () => { $("scSaveBox").hidden = true; $("scSaveOpen").focus(); });
+async function saveScenario() {
+  try {
+    const name = $("scName").value.trim();
+    if (!name) throw new Error("Give the scenario a name");
+    await api("PUT", "/app/api/scenarios", { name, config: currentScenarioConfig() });
+    $("scSaveBox").hidden = true; $("scName").value = ""; $("scMsg").textContent = `Saved “${name}”.`;
+    await loadScenarios(); $("scSaveOpen").focus();
+  } catch (e) { $("scMsg").textContent = e.message; }
+}
+$("scSave").addEventListener("click", saveScenario);
+$("scName").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); saveScenario(); } if (e.key === "Escape") $("scCancel").click(); });
+
+// ---- past runs, and comparing two of them ----
+let runHistory = [];
+async function loadHistory() {
+  try { runHistory = (await api("GET", "/app/api/history")).runs || []; } catch { runHistory = []; }
+  const keep = new Set(ticked().map((c) => c.dataset.id)); // a refresh must not lose what was ticked
+  const body = $("historyTable").tBodies[0]; body.replaceChildren();
+  $("historyEmpty").hidden = runHistory.length > 0; $("historyWrap").hidden = !runHistory.length; $("hClear").hidden = !runHistory.length;
+  for (const r of runHistory) {
+    const cb = el("input", { type: "checkbox", "aria-label": `Compare the run started ${fmtTime(r.started_at)}`, "data-id": r.id });
+    cb.addEventListener("change", syncCompare);
+    cb.checked = keep.has(r.id);
+    const s = r.summary || {}, lat = r.latency || {};
+    body.append(el("tr", {}, el("td", {}, cb), el("td", { text: fmtTime(r.started_at) }), el("td", { text: r.target || "–" }), el("td", { text: r.source || "–" }),
+      ...[fmtInt(r.records_done), fmtInt(s.peak_accepted_per_s), fmtInt(r.throttled), lat.p95_ms != null ? String(lat.p95_ms) : "–"].map((x) => el("td", { class: "num", text: x }))));
+  }
+  syncCompare();
+}
+function ticked() { return [...$("historyTable").querySelectorAll("input[type=checkbox]:checked")]; }
+function syncCompare() {
+  const t = ticked();
+  $("hCompare").disabled = t.length !== 2;
+  for (const cb of $("historyTable").querySelectorAll("input[type=checkbox]")) cb.disabled = t.length >= 2 && !cb.checked;
+  if (t.length !== 2) $("compareBox").hidden = true;
+}
+function paceText(c) {
+  if (!c) return "–";
+  let s = c.rate_per_s > 0 ? `${c.rate_per_s}/s` : "as fast as possible";
+  if (c.ramp_to_per_s > 0) s = `ramp ${c.rate_per_s}→${c.ramp_to_per_s}/s over ${c.ramp_s} s`;
+  if (c.speed > 0) s += `, ${c.speed}× recorded`;
+  return `${s}, batches of ${c.batch_size}, ${c.concurrency} connection${c.concurrency === 1 ? "" : "s"}`;
+}
+function compareRows(a, b) {
+  const sa = a.summary || {}, sb = b.summary || {}, la = a.latency || {}, lb = b.latency || {};
+  const first429 = (s) => (s.first_throttled_at_s == null ? "none" : `at ${s.first_throttled_at_s} s (${fmtInt(s.sent_per_s_at_first_throttle)}/s)`);
+  const num = (label, x, y, unit = "", better = "") => ({ label, x, y, unit, better });
+  return [
+    { label: "Started", x: fmtTime(a.started_at), y: fmtTime(b.started_at) },
+    { label: "Sent to", x: a.target || "–", y: b.target || "–" },
+    { label: "Data", x: a.source || "–", y: b.source || "–" },
+    { label: "Pace", x: paceText(a.config), y: paceText(b.config) },
+    num("Records sent", a.records_done, b.records_done),
+    num("Accepted", a.accepted, b.accepted, "", "higher"),
+    num("Peak sent per second", sa.peak_sent_per_s, sb.peak_sent_per_s),
+    num("Peak accepted per second", sa.peak_accepted_per_s, sb.peak_accepted_per_s, "", "higher"),
+    num("Requests told to slow down (429)", a.throttled, b.throttled, "", "lower"),
+    { label: "First 429", x: first429(sa), y: first429(sb) },
+    num("Request errors", a.request_errors, b.request_errors, "", "lower"),
+    num("Latency p95", la.p95_ms, lb.p95_ms, " ms", "lower"),
+    num("Latency p99", la.p99_ms, lb.p99_ms, " ms", "lower"),
+    num("Latency max", la.max_ms, lb.max_ms, " ms", "lower"),
+    num("Took", a.elapsed_s != null ? +a.elapsed_s.toFixed(1) : null, b.elapsed_s != null ? +b.elapsed_s.toFixed(1) : null, " s"),
+  ];
+}
+function showCompare() {
+  const ids = ticked().map((c) => c.dataset.id);
+  const runs = ids.map((id) => runHistory.find((r) => r.id === id)).filter(Boolean).sort((p, q) => p.started_at.localeCompare(q.started_at));
+  if (runs.length !== 2) return;
+  const [a, b] = runs;
+  const body = el("tbody");
+  const lines = [`Signal Lab comparison: run A ${fmtTime(a.started_at)} and run B ${fmtTime(b.started_at)}`];
+  for (const r of compareRows(a, b)) {
+    let change = "";
+    if (typeof r.x === "number" && typeof r.y === "number") {
+      const d = r.y - r.x;
+      change = d === 0 ? "same" : `${d > 0 ? "+" : "−"}${Math.abs(+d.toFixed(2))}${r.unit}${r.x !== 0 ? ` (${d > 0 ? "+" : "−"}${Math.abs((100 * d) / r.x).toFixed(0)}%)` : ""}`;
+    }
+    const cls = r.better && typeof r.x === "number" && r.x !== r.y ? ((r.y > r.x) === (r.better === "higher") ? "ok" : "bad") : "";
+    const show = (v, u) => (typeof v === "number" ? `${fmtInt(v)}${u || ""}` : v ?? "–");
+    body.append(el("tr", {}, el("th", { scope: "row", text: r.label }), el("td", { text: show(r.x, r.unit) }), el("td", { text: show(r.y, r.unit) }), el("td", { class: "chg " + cls, text: change })));
+    lines.push(`${r.label}: A ${show(r.x, r.unit)} | B ${show(r.y, r.unit)}${change ? " | " + change : ""}`);
+  }
+  const copy = el("button", { type: "button", text: "Copy comparison" });
+  const msg = el("span", { class: "small muted", role: "status" });
+  copy.addEventListener("click", async () => { try { await navigator.clipboard.writeText(lines.join("\n")); msg.textContent = " Copied."; } catch { msg.textContent = " Could not copy."; } setTimeout(() => { msg.textContent = ""; }, 2500); });
+  $("compareBox").replaceChildren(el("h3", { text: "Run A (older) and run B (newer)" }),
+    el("div", { class: "scroll-x", tabindex: "0", role: "region", "aria-label": "Comparison of two runs" }, el("table", {}, el("thead", {}, el("tr", {}, el("th", {}, el("span", { class: "sr", text: "Measure" })), el("th", { text: "A" }), el("th", { text: "B" }), el("th", { text: "Change" }))), body)),
+    el("p", { class: "small muted", text: "Green is better and red is worse for the numbers where one direction is better. Runs on different machines, data or settings are not like for like." }),
+    el("div", { class: "actions" }, copy, msg));
+  $("compareBox").hidden = false;
+}
+$("hCompare").addEventListener("click", showCompare);
+$("hClear").addEventListener("click", async () => {
+  try { await api("DELETE", "/app/api/history"); $("hMsg").textContent = "History cleared."; await loadHistory(); } catch (e) { $("hMsg").textContent = e.message; }
+  setTimeout(() => { $("hMsg").textContent = ""; }, 2500);
+});
 const SVG_NS = "http://www.w3.org/2000/svg";
 function svgEl(tag, attrs, text) {
   const n = document.createElementNS(SVG_NS, tag);
@@ -1084,6 +1230,7 @@ $("welcomeClose").addEventListener("click", () => {
   applied = dataParams(false); updateExportLinks();
   await loadThresholds();
   renderDevices();
+  loadScenarios(); loadHistory();
   connectFeed(); pollMetrics(); pollReplay();
   setInterval(pollMetrics, 2000);
   setInterval(pollReplay, 700);

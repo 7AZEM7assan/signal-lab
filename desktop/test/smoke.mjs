@@ -127,6 +127,26 @@ if (shotDir) await win.screenshot({ path: path.join(shotDir, "desktop-replay.png
   const tlJson = await win.evaluate(() => fetch("/app/api/replay/timeline").then((r) => r.json()));
   const reqs = tlJson.points.reduce((n, p) => n + p.requests, 0);
   check(reqs === 30 && seen.length === nRamp + 30 && tlJson.points.length >= 3, "the timeline counts every request (30 requests of 10 readings)", `${reqs} requests, ${tlJson.points.length} seconds`);
+  // The report of that run: plain text, with no header value and no part of the address after the ?.
+  check(await win.isVisible("#rpReport") && await win.isVisible("#rpReportJson"), "'Download report' is offered once a run has finished");
+  const report = await win.evaluate(() => fetch("/app/api/replay/report").then((r) => r.text()));
+  check(report.startsWith("# Signal Lab replay report") && report.includes("## Run over time") && !report.includes("SECRET") && !report.includes("abc123"), "the report is readable and holds no key or header", report.split("\n")[0]);
+  // Scenarios: save these settings under a name, change a setting, load the scenario and get the setting back.
+  await win.click("#scSaveOpen");
+  await win.fill("#scName", "ramp test");
+  await win.click("#scSave");
+  check(await until(async () => (await win.innerText("#myScenarios")).includes("ramp test"), 5000), "a saved scenario appears as a chip", await win.innerText("#scMsg"));
+  const scenarioJson = await win.evaluate(() => fetch("/app/api/scenarios").then((r) => r.text()));
+  check(scenarioJson.includes("ramp_to_per_s") && !scenarioJson.includes("SECRET") && !scenarioJson.includes("abc123"), "the saved scenario holds the settings but no key or header value");
+  await win.fill('#fields [name="ramp_to_per_s"]', "999");
+  await win.click('#myScenarios .scUse:has-text("ramp test")');
+  check((await win.inputValue('#fields [name="ramp_to_per_s"]')) === "200" && (await win.inputValue("#tUrl")).startsWith("http://127.0.0.1") && !(await win.inputValue("#tUrl")).includes("SECRET") && (await win.inputValue("#tHeaders")) === "", "loading a scenario restores the settings, without the key or headers");
+  // Past runs: every finished run is listed; two can be compared side by side.
+  check(await until(async () => (await win.locator("#historyTable tbody tr").count()) >= 3, 8000), "the finished runs are listed under Past runs", `${await win.locator("#historyTable tbody tr").count()} runs`);
+  await win.locator("#historyTable tbody input[type=checkbox]").nth(0).check();
+  await win.locator("#historyTable tbody input[type=checkbox]").nth(1).check();
+  await win.click("#hCompare");
+  check(await win.isVisible("#compareBox") && (await win.innerText("#compareBox")).includes("Peak accepted per second") && !(await win.innerText("#compareBox")).includes("SECRET"), "comparing two runs shows them side by side");
   for (const [k, v] of Object.entries(keep)) await win.fill(`#fields [name="${k}"]`, v);
   // A file whose columns are not recognised asks which column is which; the service then gets the right fields.
   const csvPath = path.join(tmp("signal-lab-csv-"), "werk.csv");

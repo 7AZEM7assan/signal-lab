@@ -300,3 +300,18 @@ label.radio input { margin:0; flex:none; }
 .chlegend .k::before { content:""; display:inline-block; width:12px; height:3px; margin-right:5px; vertical-align:middle; background:currentColor; border-radius:2px; }
 .chlegend .k.sent::before { background:var(--accent); } .chlegend .k.ok::before { background:var(--ok); }
 .chlegend .k.lat::before { background:var(--warn); } .chlegend .k.bad::before { background:var(--bad); height:8px; width:8px; border-radius:1px; }
+
+/* scenarios, past runs, comparison */
+.scenarios { margin:0 0 10px; }
+.scChip { display:inline-flex; border-radius:99px; background:var(--accent-bg); overflow:hidden; }
+.scChip button { border:0; box-shadow:none; background:transparent; color:var(--accent); border-radius:0; padding:4px 10px; }
+.scChip .scDel { padding:4px 9px; color:var(--muted); }
+.scChip .scDel:hover { color:var(--bad); }
+.scSave { display:grid; grid-template-columns:auto minmax(0,1fr) auto auto; gap:6px 8px; align-items:center; margin-top:8px; }
+.scSave p { grid-column:1 / -1; margin:2px 0 0; }
+.sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+.compare { margin-top:12px; }
+.compare h3 { margin:0 0 6px; font-size:13px; }
+.compare th[scope=row] { color:var(--muted); font-weight:600; white-space:nowrap; }
+.compare .chg.ok { color:var(--ok); } .compare .chg.bad { color:var(--bad); }
+#historyCard { margin-top:14px; }
