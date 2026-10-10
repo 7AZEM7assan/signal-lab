@@ -119,6 +119,24 @@ What to know:
 * **Faults still apply.** Malformed, duplicate and late rates, bursts and jitter work on your rows,
   so you can replay real data with problems added.
 
+## Replay at the recorded pace
+
+By default a replay sends as fast as the **Rate** allows. To send your file the way it was recorded, set
+**Speed (× recorded time)** under *Sending*:
+
+* `1` sends each reading when its time comes up in the file, so a recording of one hour takes one hour.
+* `10` is ten times faster, `0.5` half as fast. `0` (the default) turns this off and uses the rate.
+* **Rate is still the limit.** Readings go out no earlier than their recorded time allows and never faster than
+  *Rate* per second, so a fast speed cannot overload a service. (A service outside this computer is limited to
+  2,000 records per second either way.)
+* Readings in one request are sent together, at the time of the first one. Set **Batch size** to `1` to follow the
+  file reading by reading.
+* A file that is not in time order never goes back in time: an older row is sent right after the one before it.
+* A replay that would take more than **12 hours** is refused with a hint to raise the speed. The estimate under
+  the settings says how long sending will take.
+
+It works for the simulated readings too: Speed 1 plays the simulated minutes in real time.
+
 ## What to try
 
 | Question | Setting | What to look for |

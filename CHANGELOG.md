@@ -3,6 +3,10 @@
 All notable changes to Signal Lab. Installers for every version are on the
 [releases page](https://github.com/7AZEM7assan/signal-lab/releases).
 
+## Unreleased
+
+- **Replay at the recorded pace.** A new **Speed** setting sends your file the way it was recorded: 1 follows the times in the file, 10 is ten times faster, 0.5 half as fast, 0 (the default) uses the rate as before. The rate is still the most that is sent per second, and the estimate shows how long sending will take.
+
 ## 0.2.3 - 2026-10-10
 
 - **Check your data before you send it.** An imported file is checked as a whole and the app says in plain words what a replay would run into: rows Signal Lab would reject (with row numbers and why), repeated rows, rows out of time order, long silences, stuck sensors and the range of the values, with a table per device and a **Copy report** button. Nothing is changed or removed.

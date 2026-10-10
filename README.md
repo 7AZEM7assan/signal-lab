@@ -164,7 +164,7 @@ it is secured. The control API behind the panel is described in [`docs/app-api.m
 The Replay tab can send to **a service of your own** instead of the built-in one, and replay **your
 own data file**. Give it an HTTP address, optional headers (for example an API key), and a payload
 shape (`{"events":[...]}`, a bare array, NDJSON, or one record per request); import a CSV, NDJSON or
-JSON file of readings (common column names are recognised); a **data check** reports what is in the file before anything is sent (rows Signal Lab would reject with their row numbers, repeats, rows out of order, long silences, stuck sensors, value ranges); then add faults on purpose: broken,
+JSON file of readings (common column names are recognised); a **data check** reports what is in the file before anything is sent (rows Signal Lab would reject with their row numbers, repeats, rows out of order, long silences, stuck sensors, value ranges); **Speed** replays it at the pace it was recorded (or faster or slower); then add faults on purpose: broken,
 duplicated and late records, bursts, a rate. The results show the responses by status, how `429`
 and retries went, the first error with the start of what your service answered, and latency.
 

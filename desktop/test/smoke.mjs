@@ -138,6 +138,20 @@ if (shotDir) await win.screenshot({ path: path.join(shotDir, "desktop-replay.png
   const sent = JSON.parse(seen.at(-1).body).events;
   check(sent.length === 2 && sent[0].device_id === "press-01" && sent[0].temperature_c === 61.5 && sent[1].vibration_mm_s === 3 && sent[0].event_id === "press-01-1", "the service gets Signal Lab's field names with numbers as numbers", JSON.stringify(sent[0]));
   await until(async () => (await win.innerText("#rpState")) === "done", 20000);
+  // Speed follows the recorded time: the two readings are 2 s apart in the file, so with one reading per request
+  // and speed 1 they reach your service about 2 s apart (and speed 0, the default, sends them at once).
+  const batchBefore = await win.inputValue('#fields [name="batch_size"]');
+  await win.fill('#fields [name="batch_size"]', "1");
+  await win.fill('#fields [name="speed"]', "1");
+  check((await win.innerText("#estimate")).includes("1× the recorded pace"), "the estimate mentions the recorded pace", await win.innerText("#estimate"));
+  const nP = seen.length;
+  await win.click("#btnStart");
+  await until(() => seen.length >= nP + 1, 20000); const tFirst = Date.now();
+  await until(() => seen.length >= nP + 2, 20000); const tSecond = Date.now();
+  check(seen.length === nP + 2 && tSecond - tFirst >= 1400 && tSecond - tFirst <= 6000, "with Speed 1 the readings arrive at the recorded pace (2 s apart)", `${tSecond - tFirst} ms apart`);
+  await until(async () => (await win.innerText("#rpState")) === "done", 20000);
+  await win.fill('#fields [name="speed"]', "0");
+  await win.fill('#fields [name="batch_size"]', batchBefore);
   await win.click("#fMap");
   check((await win.isVisible("#mapBox")) && (await win.inputValue("#map_temperature_c")) === "Grad", "'Change columns' reopens the choice with the current columns selected");
   await win.click("#mapCancel");
