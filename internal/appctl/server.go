@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -42,16 +43,31 @@ type Server struct {
 	Started  time.Time
 	Log      *slog.Logger
 	Shutdown func() // asks the process to exit gracefully
+
+	historyOnce sync.Once
 }
 
 // Handler returns the complete handler tree, wrapped in the host and token checks.
 func (s *Server) Handler() http.Handler {
+	s.historyOnce.Do(func() {
+		s.Engine.Runner.SetOnDone(func(snap lab.Snapshot, tl lab.Timeline) {
+			if err := AddRun(s.DataDir, NewRunRecord(snap, tl)); err != nil {
+				s.Log.Warn("could not save the run to the history", "err", err)
+			}
+		})
+	})
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /app/api/state", s.handleState)
 	mux.HandleFunc("GET /app/api/replay", s.handleReplayStatus)
 	mux.HandleFunc("POST /app/api/replay/start", s.handleReplayStart)
 	mux.HandleFunc("POST /app/api/replay/stop", s.handleReplayStop)
 	mux.HandleFunc("GET /app/api/replay/timeline", s.handleReplayTimeline)
+	mux.HandleFunc("GET /app/api/replay/report", s.handleReplayReport)
+	mux.HandleFunc("GET /app/api/history", s.handleHistoryGet)
+	mux.HandleFunc("DELETE /app/api/history", s.handleHistoryDelete)
+	mux.HandleFunc("GET /app/api/scenarios", s.handleScenariosGet)
+	mux.HandleFunc("PUT /app/api/scenarios", s.handleScenarioPut)
+	mux.HandleFunc("DELETE /app/api/scenarios", s.handleScenarioDelete)
 	mux.HandleFunc("GET /app/api/replay/dataset", s.handleDatasetGet)
 	mux.HandleFunc("PUT /app/api/replay/dataset", s.handleDatasetPut)
 	mux.HandleFunc("DELETE /app/api/replay/dataset", s.handleDatasetDelete)
