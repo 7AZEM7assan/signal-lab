@@ -1,7 +1,7 @@
 {
   "name": "signal-lab-desktop",
   "productName": "Signal Lab",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Desktop app for Signal Lab: a local telemetry replay and validation lab",
   "author": "7AZEM7assan",
   "license": "MIT",
