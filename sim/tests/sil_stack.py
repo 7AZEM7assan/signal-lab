@@ -83,7 +83,17 @@ class Stack:
         return done
 
     def start(self) -> None:
-        self.compose("up", "-d", "--build", "--wait")
+        # Image registries sometimes answer "toomanyrequests" or time out; wait and try again
+        # a few times before treating it as a failure. Any other error is raised at once.
+        for attempt in range(1, 5):
+            try:
+                self.compose("up", "-d", "--build", "--wait")
+                break
+            except RuntimeError as exc:
+                transient = any(t in str(exc) for t in ("toomanyrequests", "Rate exceeded", "504", "timeout"))
+                if not transient or attempt == 4:
+                    raise
+                time.sleep(15 * attempt)
         self._discover_port()
 
     def stop(self) -> None:
