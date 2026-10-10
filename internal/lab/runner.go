@@ -53,31 +53,32 @@ type ErrorSample struct {
 
 // Snapshot is a point-in-time view of a run, safe to marshal.
 type Snapshot struct {
-	State           State          `json:"state"`
-	Error           string         `json:"error,omitempty"`
-	Config          *Config        `json:"config,omitempty"`
-	StartedAt       *time.Time     `json:"started_at,omitempty"`
-	ElapsedS        float64        `json:"elapsed_s"`
-	Planned         int            `json:"planned"` // records to send, including injected duplicates and malformed ones
-	Batches         int            `json:"batches"`
-	BatchesDone     int            `json:"batches_done"`
-	RecordsDone     int            `json:"records_done"`
-	Accepted        int            `json:"accepted"` // acknowledged with 202 (queued, not necessarily stored)
-	Rejected        int            `json:"rejected"` // refused by validation
-	RejectionCounts map[string]int `json:"rejection_counts,omitempty"`
-	Throttled       int            `json:"throttled"` // 429 responses seen, including retried ones
-	Retries         int            `json:"retries"`
-	GaveUpRecords   int            `json:"gave_up_records"` // valid records in batches refused with 429/503 after all retries
-	RequestErrors   int            `json:"request_errors"`
-	ErroredRecords  int            `json:"errored_records"`
-	Injected        *FaultCounts   `json:"injected,omitempty"`
-	Latency         map[string]any `json:"latency,omitempty"`
-	ThroughputPerS  float64        `json:"throughput_per_s"`
-	Target          string         `json:"target,omitempty"`        // where it was sent: the built-in service, or your address without its query string
-	External        bool           `json:"external"`                // sent to a service of your own
-	Source          string         `json:"source,omitempty"`        // generated data, or the imported file's name
-	StatusCounts    map[string]int `json:"status_counts,omitempty"` // responses by HTTP status
-	FirstError      *ErrorSample   `json:"first_error,omitempty"`
+	State            State          `json:"state"`
+	Error            string         `json:"error,omitempty"`
+	Config           *Config        `json:"config,omitempty"`
+	StartedAt        *time.Time     `json:"started_at,omitempty"`
+	ElapsedS         float64        `json:"elapsed_s"`
+	Planned          int            `json:"planned"` // records to send, including injected duplicates and malformed ones
+	Batches          int            `json:"batches"`
+	PlannedDurationS float64        `json:"planned_duration_s,omitempty"` // how long the sending is planned to take, when it follows recorded time
+	BatchesDone      int            `json:"batches_done"`
+	RecordsDone      int            `json:"records_done"`
+	Accepted         int            `json:"accepted"` // acknowledged with 202 (queued, not necessarily stored)
+	Rejected         int            `json:"rejected"` // refused by validation
+	RejectionCounts  map[string]int `json:"rejection_counts,omitempty"`
+	Throttled        int            `json:"throttled"` // 429 responses seen, including retried ones
+	Retries          int            `json:"retries"`
+	GaveUpRecords    int            `json:"gave_up_records"` // valid records in batches refused with 429/503 after all retries
+	RequestErrors    int            `json:"request_errors"`
+	ErroredRecords   int            `json:"errored_records"`
+	Injected         *FaultCounts   `json:"injected,omitempty"`
+	Latency          map[string]any `json:"latency,omitempty"`
+	ThroughputPerS   float64        `json:"throughput_per_s"`
+	Target           string         `json:"target,omitempty"`        // where it was sent: the built-in service, or your address without its query string
+	External         bool           `json:"external"`                // sent to a service of your own
+	Source           string         `json:"source,omitempty"`        // generated data, or the imported file's name
+	StatusCounts     map[string]int `json:"status_counts,omitempty"` // responses by HTTP status
+	FirstError       *ErrorSample   `json:"first_error,omitempty"`
 }
 
 // Runner runs one replay at a time.
@@ -164,6 +165,14 @@ func (r *Runner) Start(cfg Config, target Target, maxBatch int) (Snapshot, error
 	}
 	planned, injected := PlanRecords(records, cfg)
 	batches, schedule := Schedule(planned, cfg)
+	var duration float64
+	if len(schedule) > 0 {
+		duration = schedule[len(schedule)-1]
+	}
+	if cfg.Speed > 0 && duration > MaxReplaySeconds {
+		return Snapshot{}, fmt.Errorf("at speed %g this replay would take %s; raise the speed or use a shorter file (the longest allowed is %d hours)",
+			cfg.Speed, humanSeconds(duration), MaxReplaySeconds/3600)
+	}
 
 	label := "the built-in service"
 	if external {
@@ -180,7 +189,7 @@ func (r *Runner) Start(cfg Config, target Target, maxBatch int) (Snapshot, error
 	}
 	c := cfg.Redacted()
 	started := now.UTC()
-	r.snap = Snapshot{State: StateRunning, Config: &c, StartedAt: &started, Planned: len(planned), Batches: len(batches),
+	r.snap = Snapshot{State: StateRunning, Config: &c, StartedAt: &started, Planned: len(planned), Batches: len(batches), PlannedDurationS: duration,
 		Injected: &injected, RejectionCounts: map[string]int{}, StatusCounts: map[string]int{},
 		Target: label, External: external, Source: source}
 	r.lat = r.lat[:0]

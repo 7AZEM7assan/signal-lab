@@ -52,6 +52,7 @@ Errors have the shape `{"error": {"code": "...", "message": "..."}}`.
 
 `seed`, `devices` (1-200), `duration_s`, `interval_s`, `anomaly_rate`, `site_id`, `start` (RFC 3339;
 empty = the run ends now), `sequence_start` (0 = automatic), `rate_per_s` (0 = unpaced),
+`speed` (0 = off; above 0, send each batch when its first reading's recorded time comes up, divided by `speed`: 1 is the pace the data was recorded at, 10 is ten times faster; `rate_per_s` is still the most sent per second, and a replay that would take more than 12 hours is refused with `400`; the replay state then has `planned_duration_s`),
 `batch_size`, `concurrency` (1-16), `retries` (0-100), `timeout_s`, `malformed_rate`,
 `duplicate_rate`, `late_rate` (each 0-1), `late_seconds`, `burst_every`, `burst_size`, `jitter_ms`.
 At most 500,000 readings per run. Setting `start`, `sequence_start` and `seed` to fixed values

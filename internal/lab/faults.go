@@ -113,18 +113,30 @@ func mustJSON(v any) []byte {
 	return b
 }
 
-// Schedule groups records into batches and returns each batch's send offset in seconds.
+// Schedule groups records into batches and returns each batch's send offset in seconds: by the rate,
+// or by the recorded time when Speed is set (never earlier than the rate allows).
 func Schedule(planned []Planned, c Config) ([][]Planned, []float64) {
 	var batches [][]Planned
 	for i := 0; i < len(planned); i += c.BatchSize {
 		batches = append(batches, planned[i:min(i+c.BatchSize, len(planned))])
 	}
 	sent := 0
+	prev := 0.0
 	schedule := make([]float64, len(batches))
 	for i, b := range batches {
+		at := 0.0
 		if c.RatePerS > 0 {
-			schedule[i] = float64(sent) / c.RatePerS
+			at = float64(sent) / c.RatePerS
 		}
+		if c.Speed > 0 && len(b) > 0 {
+			// Follow the recorded time: a batch goes out when its first reading's moment comes up. The
+			// times never run backwards, so a reading that is older than the one before it (a file out
+			// of order) is sent right after its neighbour instead of at an earlier moment.
+			rec := max(b[0].TRel, 0) / c.Speed
+			prev = max(prev, rec)
+			at = max(at, prev)
+		}
+		schedule[i] = at
 		sent += len(b)
 	}
 	return batches, applyBursts(schedule, c)

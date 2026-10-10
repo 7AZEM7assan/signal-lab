@@ -24,6 +24,10 @@ const (
 	MaxRecords     = 500_000
 	MaxConcurrency = 16
 	MaxRetries     = 100
+	// MaxSpeed is the largest multiple of the recorded pace; MaxReplaySeconds is the longest a replay
+	// that follows recorded time may take (a three-day recording at speed 1 would run for three days).
+	MaxSpeed         = 100_000
+	MaxReplaySeconds = 12 * 3600
 )
 
 // Config describes one replay: what to generate, how to send it, and which faults to inject.
@@ -43,7 +47,11 @@ type Config struct {
 	SequenceStart int64  `json:"sequence_start"`
 
 	// Sending.
-	RatePerS    float64 `json:"rate_per_s"` // target records per second; 0 = as fast as possible
+	RatePerS float64 `json:"rate_per_s"` // target records per second; 0 = as fast as possible
+	// Speed, when above 0, follows the recorded time: 1 sends each batch when its first reading's time
+	// comes up (the pace the data was recorded at), 10 is ten times faster. RatePerS still applies as
+	// the most that is sent per second, so a service outside this computer keeps its limit. 0 = off.
+	Speed       float64 `json:"speed"`
 	BatchSize   int     `json:"batch_size"`
 	Concurrency int     `json:"concurrency"`
 	Retries     int     `json:"retries"` // extra attempts after a 429/503
@@ -107,6 +115,9 @@ func (c Config) Validate(maxBatch int) error {
 	}
 	if c.RatePerS < 0 {
 		bad("rate must be 0 (unpaced) or positive")
+	}
+	if c.Speed < 0 || c.Speed > MaxSpeed || math.IsNaN(c.Speed) {
+		bad("speed must be 0 (off) or between 0 and %d times the recorded pace", MaxSpeed)
 	}
 	if c.BatchSize < 1 || (maxBatch > 0 && c.BatchSize > maxBatch) {
 		bad("batch size must be 1-%d", maxBatch)
