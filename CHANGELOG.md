@@ -3,7 +3,7 @@
 All notable changes to Signal Lab. Installers for every version are on the
 [releases page](https://github.com/7AZEM7assan/signal-lab/releases).
 
-## Unreleased
+## 0.2.5 - 2026-10-10
 
 - **Save scenarios.** Replay settings can be saved by name and loaded again with one click. Header values, the permission tick and an address's query string are never saved.
 - **Download a report** of a finished run (Markdown or JSON): the setup, results, the run over time and the data check of your file.
