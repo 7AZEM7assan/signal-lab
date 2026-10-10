@@ -5,6 +5,7 @@ All notable changes to Signal Lab. Installers for every version are on the
 
 ## Unreleased
 
+- **Find where a service gives up.** A rate **ramp** (Replay > *Ramp up to* and *Ramp time*) climbs from the rate to a final rate, and a new **Run over time** chart shows sent and accepted records per second, p95 latency and the seconds with `429` or errors, with a plain-words summary of when the first `429` came. A *Find the limit* preset is included. Measured results for the built-in service on one laptop are in `docs/BENCHMARKS.md`.
 - **Replay at the recorded pace.** A new **Speed** setting sends your file the way it was recorded: 1 follows the times in the file, 10 is ten times faster, 0.5 half as fast, 0 (the default) uses the rate as before. The rate is still the most that is sent per second, and the estimate shows how long sending will take.
 
 ## 0.2.3 - 2026-10-10

@@ -164,7 +164,7 @@ it is secured. The control API behind the panel is described in [`docs/app-api.m
 The Replay tab can send to **a service of your own** instead of the built-in one, and replay **your
 own data file**. Give it an HTTP address, optional headers (for example an API key), and a payload
 shape (`{"events":[...]}`, a bare array, NDJSON, or one record per request); import a CSV, NDJSON or
-JSON file of readings (common column names are recognised); a **data check** reports what is in the file before anything is sent (rows Signal Lab would reject with their row numbers, repeats, rows out of order, long silences, stuck sensors, value ranges); **Speed** replays it at the pace it was recorded (or faster or slower); then add faults on purpose: broken,
+JSON file of readings (common column names are recognised); a **data check** reports what is in the file before anything is sent (rows Signal Lab would reject with their row numbers, repeats, rows out of order, long silences, stuck sensors, value ranges); **Speed** replays it at the pace it was recorded (or faster or slower); a **ramp** climbs from one rate to another and a **Run over time** chart shows where the service starts answering `429` or slowing down; then add faults on purpose: broken,
 duplicated and late records, bursts, a rate. The results show the responses by status, how `429`
 and retries went, the first error with the start of what your service answered, and latency.
 
@@ -574,6 +574,8 @@ This is a local check: it proves the code on the machine where you run it and do
 ## Load exercise
 
 A reproducible command and dataset recipe. Local results from one machine (three runs per configuration, with environment and method) are recorded in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md); in short, on a 4 vCPU sandbox VM the documented command acknowledged all 50,000 events with no request errors and no lost events, and its run time (9.4–27.9 s) was dominated by 429 backpressure and `Retry-After` sleeps rather than by the database. Those numbers are not a capacity claim.
+
+The desktop app can also ramp the rate up and chart the run second by second (see [Test your own service](docs/test-your-service.md#find-where-a-service-gives-up-ramp-and-chart)). A ramp from 500 to 20,000 records a second against the app's built-in service, on one Apple M2 laptop with the sender on the same machine, found the service accepting up to about 12,000-12,700 records a second and answering `429` once the sender passed roughly 8,000-11,000 a second, with nothing accepted lost (three runs, method and caveats in `docs/BENCHMARKS.md`). That too is a local result, not a capacity rating.
 
 ```bash
 make up
