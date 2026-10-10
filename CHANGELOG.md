@@ -3,6 +3,13 @@
 All notable changes to Signal Lab. Installers for every version are on the
 [releases page](https://github.com/7AZEM7assan/signal-lab/releases).
 
+## Unreleased
+
+- **Save scenarios.** Replay settings can be saved by name and loaded again with one click. Header values, the permission tick and an address's query string are never saved.
+- **Download a report** of a finished run (Markdown or JSON): the setup, results, the run over time and the data check of your file.
+- **Past runs and comparison.** The last 30 replays are kept on this computer; tick two to compare them side by side.
+- **Fixed:** Start could be pressed while a preset was still changing the service's settings, so the run used the old ones. Start now waits, and *Find the limit* puts the queue and workers back to the defaults.
+
 ## 0.2.4 - 2026-10-10
 
 - **Find where a service gives up.** A rate **ramp** (Replay > *Ramp up to* and *Ramp time*) climbs from the rate to a final rate, and a new **Run over time** chart shows sent and accepted records per second, p95 latency and the seconds with `429` or errors, with a plain-words summary of when the first `429` came. A *Find the limit* preset is included. Measured results for the built-in service on one laptop are in `docs/BENCHMARKS.md`.

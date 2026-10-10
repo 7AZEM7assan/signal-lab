@@ -157,6 +157,24 @@ For a service outside this computer the final rate may not exceed 2,000 records 
 The chart keeps the first hour of a run. A measured example, with the machine and the method, is in
 [BENCHMARKS.md](BENCHMARKS.md).
 
+## Save scenarios, keep a report, compare runs
+
+* **Scenarios.** Under *Run a replay*, **Save these settings as a scenario…** stores the settings under a name; the
+  name then appears as a chip, and clicking it loads the settings back (the **×** deletes it). A scenario keeps the
+  settings and the service address **without anything after a `?`**. It never keeps header values or the permission
+  tick, so enter those again, and it does not keep your file: import it again.
+* **Report.** When a run has finished, **Download report** saves it as a readable text file (Markdown): the setup,
+  the results, the run over time and, for your own file, the data check. **JSON** saves the same as data. Neither
+  contains header values or an address's query string. Readings sent to your own service are not stored by Signal Lab.
+* **Past runs and comparing.** The last 30 replays are listed at the bottom of the Replay tab, kept on this computer.
+  Tick two and **Compare the two ticked runs** to see them side by side: pace, records accepted, the best second, the
+  `429`s and when they began, errors and latency, with the change in green when it is better and red when it is worse.
+  Runs on different machines, data or settings are not like for like; the table says so. **Copy comparison** puts
+  it on your clipboard.
+* Presets that change the service's own settings (*Backpressure demo*, *Find the limit*) apply them first and
+  **Start** waits until that is done. *Find the limit* puts the queue and workers back to the app's defaults, so it
+  can be compared from one run to the next.
+
 ## What to try
 
 | Question | Setting | What to look for |

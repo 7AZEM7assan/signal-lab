@@ -33,7 +33,7 @@ make desktop-dist          # installer / app for THIS operating system in deskto
 
 | What | Where |
 |---|---|
-| Events, alerts, settings | the **data folder**: `<app folder>/data/` (see below), one `signallab.db` plus `settings.json` and `ui-prefs.json` (the appearance choice and whether the welcome was dismissed) |
+| Events, alerts, settings | the **data folder**: `<app folder>/data/` (see below), one `signallab.db` plus `settings.json` and `ui-prefs.json` (the appearance choice and whether the welcome was dismissed), `scenarios.json` (replay settings you saved by name: no header values) and `run-history.json` (the last 30 finished replays: no header values) |
 | Log | `<app folder>/logs/signal-lab.log` |
 
 `<app folder>` is `~/Library/Application Support/Signal Lab` on macOS, `%APPDATA%\Signal Lab` on
@@ -54,7 +54,8 @@ except a replay that you aim at a service of your own (see below).
   and latency. An imported file gets a **data check** first: rows that would be rejected (with row numbers),
   repeats, rows out of order, long silences, stuck sensors and value ranges. **Speed** replays a file at the pace it
   was recorded, or a multiple of it. A **ramp** raises the rate over time and **Run over time** charts what was sent, what was
-  accepted and how slow it got, second by second. Readings sent to your service are not stored in the app. See
+  accepted and how slow it got, second by second. **Scenarios** save settings by name, **Download report** keeps a finished run as a text
+  file, and **Past runs** lists the last 30 so two can be compared. Readings sent to your service are not stored in the app. See
   [`docs/test-your-service.md`](../docs/test-your-service.md).
 - **Data**: filter events and alerts by device and time, page through them, and export everything
   that matches as CSV, NDJSON or JSON.
