@@ -53,7 +53,8 @@ except a replay that you aim at a service of your own (see below).
   or JSON file you import. The results show responses by status, `429` handling, the first error
   and latency. An imported file gets a **data check** first: rows that would be rejected (with row numbers),
   repeats, rows out of order, long silences, stuck sensors and value ranges. **Speed** replays a file at the pace it
-  was recorded, or a multiple of it. Readings sent to your service are not stored in the app. See
+  was recorded, or a multiple of it. A **ramp** raises the rate over time and **Run over time** charts what was sent, what was
+  accepted and how slow it got, second by second. Readings sent to your service are not stored in the app. See
   [`docs/test-your-service.md`](../docs/test-your-service.md).
 - **Data**: filter events and alerts by device and time, page through them, and export everything
   that matches as CSV, NDJSON or JSON.

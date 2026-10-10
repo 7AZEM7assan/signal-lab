@@ -28,6 +28,7 @@ const (
 	// that follows recorded time may take (a three-day recording at speed 1 would run for three days).
 	MaxSpeed         = 100_000
 	MaxReplaySeconds = 12 * 3600
+	MaxRampRate      = 1_000_000.0
 )
 
 // Config describes one replay: what to generate, how to send it, and which faults to inject.
@@ -51,7 +52,12 @@ type Config struct {
 	// Speed, when above 0, follows the recorded time: 1 sends each batch when its first reading's time
 	// comes up (the pace the data was recorded at), 10 is ten times faster. RatePerS still applies as
 	// the most that is sent per second, so a service outside this computer keeps its limit. 0 = off.
-	Speed       float64 `json:"speed"`
+	Speed float64 `json:"speed"`
+	// RampToPerS, when above 0, makes the rate climb (or fall) in a straight line from RatePerS to this
+	// many records per second over RampS seconds, then hold it: a way to find where a service gives up.
+	// RatePerS must be above 0 for it. 0 = off.
+	RampToPerS  float64 `json:"ramp_to_per_s"`
+	RampS       float64 `json:"ramp_s"`
 	BatchSize   int     `json:"batch_size"`
 	Concurrency int     `json:"concurrency"`
 	Retries     int     `json:"retries"` // extra attempts after a 429/503
@@ -115,6 +121,11 @@ func (c Config) Validate(maxBatch int) error {
 	}
 	if c.RatePerS < 0 {
 		bad("rate must be 0 (unpaced) or positive")
+	}
+	if c.RampToPerS < 0 || c.RampToPerS > MaxRampRate || math.IsNaN(c.RampToPerS) || c.RampS < 0 || c.RampS > MaxReplaySeconds || math.IsNaN(c.RampS) {
+		bad("ramp: the final rate must be 0 (off) up to %d records per second and the ramp time up to %d seconds", int(MaxRampRate), MaxReplaySeconds)
+	} else if c.RampToPerS > 0 && (c.RatePerS <= 0 || c.RampS <= 0) {
+		bad("a ramp needs a starting rate above 0 and a ramp time above 0 seconds")
 	}
 	if c.Speed < 0 || c.Speed > MaxSpeed || math.IsNaN(c.Speed) {
 		bad("speed must be 0 (off) or between 0 and %d times the recorded pace", MaxSpeed)

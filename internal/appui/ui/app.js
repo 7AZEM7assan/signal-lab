@@ -37,6 +37,8 @@ const TIPS = {
   anomaly_rate: "Chance, per reading, that a machine starts a short hot or shaky episode that should trigger alerts.",
   site_id: "A label for the plant the readings come from.",
   rate_per_s: "How many readings are sent per second; 0 sends as fast as possible. When Speed is set, this is the most that is sent per second.",
+  ramp_to_per_s: "Climb in a straight line from Rate to this many records per second, then hold it. Use it to find where a service starts answering 429 or slows down. 0 turns it off.",
+  ramp_s: "How many seconds the climb from Rate to the final rate takes.",
   speed: "Follow the recorded time: 1 sends each reading when its time comes up in the data, 10 is ten times faster, 0.5 half as fast. 0 turns this off and uses the rate.",
   batch_size: "How many readings go into each request to the service.",
   concurrency: "How many requests are in flight at the same time.",
@@ -313,6 +315,8 @@ const REPLAY_FIELDS = [
   { group: "Sending" },
   { key: "rate_per_s", label: "Rate (records/s)", min: 0, step: "any", hint: "0 = as fast as possible" },
   { key: "speed", label: "Speed (× recorded time)", min: 0, step: "any", hint: "0 = off; 1 = original pace; 10 = ten times faster" },
+  { key: "ramp_to_per_s", label: "Ramp up to (records/s)", min: 0, step: "any", hint: "0 = off; climbs from Rate to this" },
+  { key: "ramp_s", label: "Ramp time (s)", min: 0, step: "any", hint: "How long the climb takes" },
   { key: "batch_size", label: "Batch size", min: 1, step: 1 },
   { key: "concurrency", label: "Connections", min: 1, max: 16, step: 1 },
   { key: "retries", label: "Retries on 429", min: 0, max: 100, step: 1 },
@@ -338,6 +342,7 @@ const PRESETS = [
     note: "Also sets a small queue and a slow worker in Settings so the queue fills and the service answers 429." },
   { name: "Repeat exactly (idempotency)", tip: "idempotency", cfg: { start: "2025-01-15T08:00:00Z", sequence_start: 1000 },
     note: "Run this twice: the second run stores nothing new, because every event already exists." },
+  { name: "Find the limit", cfg: { devices: 20, duration_s: 1200, interval_s: 1, rate_per_s: 100, ramp_to_per_s: 3000, ramp_s: 20, batch_size: 50, concurrency: 8, retries: 0 }, note: "Starts at 100 records a second and climbs to 3,000 over 20 seconds, so the chart shows where the service starts saying 429 or slowing down." },
 ];
 let replayDefaults = {};
 
@@ -806,7 +811,7 @@ function renderReplay(s) {
   if (running && !runWatch) runWatch = { startedAt: s.started_at, base: null, reported: false }; // run started before this page loaded
   if ((s.state === "done" || s.state === "stopped") && runWatch && !runWatch.reported && runWatch.startedAt === s.started_at) finishRun(s);
   const box = $("rpStats"); box.replaceChildren();
-  if (s.state === "idle") { $("rpCopy").hidden = true; box.append(el("p", { class: "muted", text: "No replay has run yet." })); return; }
+  if (s.state === "idle") { $("rpChart").hidden = true; lastTimelineText = ""; $("rpCopy").hidden = true; box.append(el("p", { class: "muted", text: "No replay has run yet." })); return; }
   const rc = Object.entries(s.rejection_counts || {}).map(([k, v]) => `${v} ${k.replaceAll("_", " ")}`).join(", ");
   const inj = s.injected || {};
   const lat = s.latency || {};
@@ -827,6 +832,7 @@ function renderReplay(s) {
   const latText = lat.count ? `p50 ${lat.p50_ms} ms, p95 ${lat.p95_ms} ms, p99 ${lat.p99_ms} ms, max ${lat.max_ms} ms` : "–";
   rows.push(["Request latency", lat.count ? latencyBars(lat) : "–", "latency", latText]);
   for (const [k, v, tip] of rows) box.append(stat(k, v, tip));
+  refreshTimeline(s);
   lastCopy = [`Signal Lab replay: ${s.state}`, ...rows.map(([k, v, , plain]) => `${k}: ${plain ?? v}`)].join("\n");
   $("rpCopy").hidden = false;
   if (s.state === "done" || s.state === "stopped") {
@@ -834,6 +840,57 @@ function renderReplay(s) {
       ? "These readings went to your service and were not stored here, so they do not appear in the Live or Data tabs. Check your service for what it kept."
       : "Accepted means queued in memory, not yet stored. See the Data and Storage tabs for what was saved." }));
   }
+}
+
+// ---- the run over time: what was sent, what was accepted and how slow it got, second by second ----
+let lastTimelineText = "";
+let tlFetched = { key: "", at: 0 };
+async function refreshTimeline(s) {
+  const live = s.state === "running", now = Date.now(), key = `${s.started_at}|${s.state}`;
+  if (live ? now - tlFetched.at < 1500 : tlFetched.key === key) return;
+  tlFetched = { key, at: now };
+  try { drawTimeline(await api("GET", "/app/api/replay/timeline")); } catch { /* the chart is optional */ }
+}
+const SVG_NS = "http://www.w3.org/2000/svg";
+function svgEl(tag, attrs, text) {
+  const n = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, v);
+  if (text != null) n.textContent = text;
+  return n;
+}
+function drawTimeline(tl) {
+  const box = $("rpChart"), pts = tl.points || [];
+  if (pts.length < 3) { box.hidden = true; lastTimelineText = ""; return; }
+  const W = 640, H = 250, L = 46, R = 46, T = 12, B = 26, pw = W - L - R, ph = H - T - B - 34;
+  const maxSent = Math.max(1, ...pts.map((p) => p.sent)), maxLat = Math.max(1, ...pts.map((p) => p.p95_ms));
+  const bad = pts.map((p) => p.throttled + p.errors), maxBad = Math.max(1, ...bad);
+  const x = (i) => L + (pts.length === 1 ? 0 : (pw * i) / (pts.length - 1));
+  const ySent = (v) => T + ph - (ph * v) / maxSent, yLat = (v) => T + ph - (ph * v) / maxLat;
+  const line = (f, ys) => pts.map((p, i) => `${x(i).toFixed(1)},${ys(f(p)).toFixed(1)}`).join(" ");
+  const sm = tl.summary || {};
+  const parts = [`Sent up to ${fmtInt(sm.peak_sent_per_s)} records a second; the service accepted up to ${fmtInt(sm.peak_accepted_per_s)}.`];
+  if (sm.first_throttled_at_s != null) parts.push(`First told to slow down (429) at ${sm.first_throttled_at_s} s, when about ${fmtInt(sm.sent_per_s_at_first_throttle)} records a second were being sent.`);
+  if (sm.first_error_at_s != null) parts.push(`First error at ${sm.first_error_at_s} s, at about ${fmtInt(sm.sent_per_s_at_first_error)} records a second.`);
+  if (sm.p95_first_ms || sm.p95_last_ms) parts.push(`The slowest 5% of requests took ${sm.p95_first_ms} ms at the start and ${sm.p95_last_ms} ms at the end.`);
+  if (tl.truncated) parts.push("Only the first hour is shown.");
+  lastTimelineText = "Run over time: " + parts.join(" ");
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": lastTimelineText, class: "tlsvg" });
+  for (const f of [0, 0.5, 1]) svg.append(svgEl("line", { x1: L, x2: W - R, y1: T + ph * f, y2: T + ph * f, class: "ch-grid" }));
+  const bw = Math.max(1, Math.min(8, pw / pts.length - 1));
+  pts.forEach((p, i) => { if (bad[i] > 0) { const h = Math.max(2, (30 * bad[i]) / maxBad); svg.append(svgEl("rect", { x: x(i) - bw / 2, y: H - B - h, width: bw, height: h, class: "ch-bad" })); } });
+  svg.append(svgEl("polyline", { points: line((p) => p.sent, ySent), class: "ch-sent" }));
+  svg.append(svgEl("polyline", { points: line((p) => p.records, ySent), class: "ch-ok" }));
+  svg.append(svgEl("polyline", { points: line((p) => p.p95_ms, yLat), class: "ch-lat" }));
+  svg.append(svgEl("text", { x: L - 6, y: T + 4, class: "ch-t", "text-anchor": "end" }, fmtInt(maxSent)));
+  svg.append(svgEl("text", { x: L - 6, y: T + ph, class: "ch-t", "text-anchor": "end" }, "0"));
+  svg.append(svgEl("text", { x: W - R + 6, y: T + 4, class: "ch-t" }, `${maxLat} ms`));
+  svg.append(svgEl("text", { x: L, y: H - 8, class: "ch-t" }, "0 s"));
+  svg.append(svgEl("text", { x: W - R, y: H - 8, class: "ch-t", "text-anchor": "end" }, `${pts[pts.length - 1].t} s`));
+  const legend = el("div", { class: "chlegend small" },
+    el("span", { class: "k sent", text: "sent per second" }), el("span", { class: "k ok", text: "accepted per second" }),
+    el("span", { class: "k lat", text: "p95 latency (right scale)" }), el("span", { class: "k bad", text: "seconds with 429 or errors" }));
+  box.replaceChildren(el("h3", { text: "Run over time" }), svg, legend, el("p", { class: "small", text: parts.join(" ") }));
+  box.hidden = false;
 }
 const times = (n) => n === 1 ? "1 time" : `${fmtInt(n)} times`;
 const retries = (n) => n === 1 ? "1 retry" : `${fmtInt(n)} retries`;
@@ -866,7 +923,7 @@ function latencyBars(l) {
 let lastCopy = "";
 $("rpCopy").addEventListener("click", async () => {
   const msg = $("rpCopyMsg");
-  try { await navigator.clipboard.writeText(lastCopy); msg.textContent = "Copied."; }
+  try { await navigator.clipboard.writeText(lastCopy + (lastTimelineText ? "\n\n" + lastTimelineText : "")); msg.textContent = "Copied."; }
   catch { msg.textContent = "Could not copy. Select the results and copy them by hand."; }
   setTimeout(() => { msg.textContent = ""; }, 2500);
 });

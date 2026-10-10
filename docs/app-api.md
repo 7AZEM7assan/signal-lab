@@ -33,6 +33,7 @@ Errors have the shape `{"error": {"code": "...", "message": "..."}}`.
 | `GET /app/api/state` | version, data folder, engine status (queue depth/capacity, settings), storage statistics, default settings and replay defaults |
 | `GET /app/api/replay` | progress of the current or last replay |
 | `POST /app/api/replay/start` | start a replay; body is a JSON object with any of the fields below (omitted fields use the defaults); `409` if one is running |
+| `GET /app/api/replay/timeline` | the per-second record of the current or latest replay: `points` (`t`, `requests`, `sent`, `records`, `throttled`, `errors`, `p50_ms`, `p95_ms`), `truncated` (only the first hour is kept) and a `summary` (`peak_sent_per_s`, `peak_accepted_per_s`, when the first `429` and the first error came and how many records a second were sent then, and the p95 latency at the start and the end) |
 | `POST /app/api/replay/stop` | stop a running replay and return its final state |
 | `PUT /app/api/replay/dataset` | import a file to replay: the CSV, NDJSON or JSON file is the request body (up to 32 MB, 200,000 rows), `?name=` is shown as its name. Replaces the previous file; kept in memory only. `400 invalid_dataset` says what is wrong. Returns `{"dataset": summary}` |
 | `PUT /app/api/replay/dataset?map=...` | the same import with your own choice of columns: `map` is a JSON object `{"file column": "field"}` (a field is one of `event_time`, `device_id`, `temperature_c`, `vibration_mm_s`, `event_id`, `sequence`, `site_id`; `""` ignores the column). Columns you do not mention are matched automatically. A file with no usable column for a required field is not refused as invalid: the reply is `400` with `error.code` = `needs_mapping`, plus `columns` (the file's columns), `missing`, `found` (field -> column, for what was recognised) and `fields`; import again with `map` to continue. The summary has a `fields` object (field -> column) |
@@ -52,6 +53,7 @@ Errors have the shape `{"error": {"code": "...", "message": "..."}}`.
 
 `seed`, `devices` (1-200), `duration_s`, `interval_s`, `anomaly_rate`, `site_id`, `start` (RFC 3339;
 empty = the run ends now), `sequence_start` (0 = automatic), `rate_per_s` (0 = unpaced),
+`ramp_to_per_s` and `ramp_s` (0 = off; above 0, the rate climbs in a straight line from `rate_per_s` to `ramp_to_per_s` over `ramp_s` seconds, then holds; `rate_per_s` must be above 0 and, for a service outside this computer, both rates stay within 2,000),
 `speed` (0 = off; above 0, send each batch when its first reading's recorded time comes up, divided by `speed`: 1 is the pace the data was recorded at, 10 is ten times faster; `rate_per_s` is still the most sent per second, and a replay that would take more than 12 hours is refused with `400`; the replay state then has `planned_duration_s`),
 `batch_size`, `concurrency` (1-16), `retries` (0-100), `timeout_s`, `malformed_rate`,
 `duplicate_rate`, `late_rate` (each 0-1), `late_seconds`, `burst_every`, `burst_size`, `jitter_ms`.

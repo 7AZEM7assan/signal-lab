@@ -51,6 +51,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /app/api/replay", s.handleReplayStatus)
 	mux.HandleFunc("POST /app/api/replay/start", s.handleReplayStart)
 	mux.HandleFunc("POST /app/api/replay/stop", s.handleReplayStop)
+	mux.HandleFunc("GET /app/api/replay/timeline", s.handleReplayTimeline)
 	mux.HandleFunc("GET /app/api/replay/dataset", s.handleDatasetGet)
 	mux.HandleFunc("PUT /app/api/replay/dataset", s.handleDatasetPut)
 	mux.HandleFunc("DELETE /app/api/replay/dataset", s.handleDatasetDelete)
@@ -226,6 +227,11 @@ func (s *Server) handleReplayStart(w http.ResponseWriter, r *http.Request) {
 		s.Log.Info("replay started", "planned", snap.Planned, "batches", snap.Batches, "source", snap.Source, "target", snap.Target)
 		writeJSON(w, http.StatusAccepted, snap)
 	}
+}
+
+// handleReplayTimeline returns the per-second record of the current or latest replay.
+func (s *Server) handleReplayTimeline(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.Engine.Runner.Timeline())
 }
 
 func (s *Server) handleReplayStop(w http.ResponseWriter, _ *http.Request) {

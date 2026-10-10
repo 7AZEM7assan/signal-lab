@@ -301,3 +301,50 @@ func TestInterfacePreferencesPersistInTheDataFolder(t *testing.T) {
 		}
 	}
 }
+
+func TestTimelineIsEmptyBeforeAnyRunAndShowsTheLatestRunAfterwards(t *testing.T) {
+	a := newApp(t, "")
+	type timeline struct {
+		Points []struct {
+			T        int `json:"t"`
+			Requests int `json:"requests"`
+			Records  int `json:"records"`
+		} `json:"points"`
+		Summary struct {
+			PeakSentPerS int `json:"peak_sent_per_s"`
+		} `json:"summary"`
+	}
+	var tl timeline
+	if c := a.json("GET", "/app/api/replay/timeline", nil, &tl); c != 200 || len(tl.Points) != 0 {
+		t.Fatalf("before a run: %d %+v", c, tl)
+	}
+	var snap map[string]any
+	// Ramp from 100 to 400 records per second over 1 s; 10 devices for 20 s every second = 200 records.
+	body := replayBody(map[string]any{"devices": 10, "duration_s": 20, "interval_s": 1, "rate_per_s": 100, "ramp_to_per_s": 400, "ramp_s": 1, "batch_size": 10})
+	if c := a.json("POST", "/app/api/replay/start", body, &snap); c != 202 {
+		t.Fatalf("start: %d %v", c, snap)
+	}
+	if done := a.waitReplay(); done["state"] != "done" || done["planned"].(float64) != 200 {
+		t.Fatalf("run: %v", done)
+	}
+	a.json("GET", "/app/api/replay/timeline", nil, &tl)
+	records, requests := 0, 0
+	for _, p := range tl.Points {
+		records += p.Records
+		requests += p.Requests
+	}
+	if requests != 20 || records != 200 || tl.Summary.PeakSentPerS == 0 {
+		t.Fatalf("20 requests of 10 records: %d requests, %d records, %+v", requests, records, tl.Summary)
+	}
+	// A bad ramp is refused with the reason, not started.
+	bad := replayBody(map[string]any{"rate_per_s": 0, "ramp_to_per_s": 400, "ramp_s": 5})
+	var errBody map[string]any
+	if c := a.json("POST", "/app/api/replay/start", bad, &errBody); c != 400 || !strings.Contains(errBodyText(errBody), "ramp needs a starting rate") {
+		t.Fatalf("bad ramp: %d %v", c, errBody)
+	}
+}
+
+func errBodyText(m map[string]any) string {
+	b, _ := json.Marshal(m)
+	return string(b)
+}
