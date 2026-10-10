@@ -36,7 +36,8 @@ const TIPS = {
   interval_s: "Seconds between two readings from the same machine.",
   anomaly_rate: "Chance, per reading, that a machine starts a short hot or shaky episode that should trigger alerts.",
   site_id: "A label for the plant the readings come from.",
-  rate_per_s: "How many readings are sent per second; 0 sends as fast as possible.",
+  rate_per_s: "How many readings are sent per second; 0 sends as fast as possible. When Speed is set, this is the most that is sent per second.",
+  speed: "Follow the recorded time: 1 sends each reading when its time comes up in the data, 10 is ten times faster, 0.5 half as fast. 0 turns this off and uses the rate.",
   batch_size: "How many readings go into each request to the service.",
   concurrency: "How many requests are in flight at the same time.",
   retries: "How many times a batch is sent again after the service answers 429 (\"too busy, try again later\").",
@@ -311,6 +312,7 @@ const REPLAY_FIELDS = [
   { key: "site_id", label: "Site id", text: true },
   { group: "Sending" },
   { key: "rate_per_s", label: "Rate (records/s)", min: 0, step: "any", hint: "0 = as fast as possible" },
+  { key: "speed", label: "Speed (× recorded time)", min: 0, step: "any", hint: "0 = off; 1 = original pace; 10 = ten times faster" },
   { key: "batch_size", label: "Batch size", min: 1, step: 1 },
   { key: "concurrency", label: "Connections", min: 1, max: 16, step: 1 },
   { key: "retries", label: "Retries on 429", min: 0, max: 100, step: 1 },
@@ -411,11 +413,23 @@ function revealField(key) {
 }
 
 // ---------- Replay ----------
+function fmtDur(s) { return s < 90 ? `${s.toFixed(s < 10 ? 1 : 0)} s` : s < 5400 ? `${(s / 60).toFixed(1)} min` : `${(s / 3600).toFixed(1)} h`; }
+// How long sending will take: the slower of the rate and the recorded time at the chosen speed.
+function sendSeconds(n, spanS, c) {
+  const byRate = c.rate_per_s > 0 ? n / c.rate_per_s : 0;
+  const bySpeed = c.speed > 0 && spanS > 0 ? spanS / c.speed : 0;
+  return Math.max(byRate, bySpeed);
+}
 function updateEstimate() {
   if (src() === "file" && dataset) {
     const n = dataset.rows;
     let t = "";
-    try { const r = readForm($("fields"), REPLAY_FIELDS).rate_per_s; if (r > 0) t = `, about ${(n / r).toFixed(1)} s to send`; } catch { /* ignore */ }
+    try {
+      const c = readForm($("fields"), REPLAY_FIELDS);
+      const span = dataset.first_time && dataset.last_time ? (Date.parse(dataset.last_time) - Date.parse(dataset.first_time)) / 1000 : 0;
+      const sec = sendSeconds(n, span, c);
+      if (sec > 0) t = `, about ${fmtDur(sec)} to send${c.speed > 0 ? ` (${c.speed}× the recorded pace)` : ""}`;
+    } catch { /* ignore */ }
     $("estimate").textContent = `${fmtInt(n)} rows from your file will be sent${t}.`;
     return;
   }
@@ -423,7 +437,8 @@ function updateEstimate() {
     const c = readForm($("fields"), REPLAY_FIELDS);
     const n = Math.floor(c.duration_s / c.interval_s) * c.devices;
     let t = "";
-    if (c.rate_per_s > 0) t = `, about ${(n / c.rate_per_s).toFixed(1)} s to send`;
+    const sec = sendSeconds(n, c.duration_s, c);
+    if (sec > 0) t = `, about ${fmtDur(sec)} to send`;
     $("estimate").textContent = Number.isFinite(n) ? `About ${fmtInt(n)} readings will be generated${t}.` : "";
   } catch { $("estimate").textContent = ""; }
 }
@@ -700,7 +715,7 @@ $("btnProbe").addEventListener("click", async () => {
     const base = readForm($("fields"), REPLAY_FIELDS);
     const target = readTarget(false);
     await startReplay({ ...base, ...target, devices: 1, duration_s: base.interval_s, anomaly_rate: 0, malformed_rate: 0, duplicate_rate: 0, late_rate: 0,
-      late_seconds: 0, burst_every: 0, burst_size: 0, jitter_ms: 0, rate_per_s: 0, batch_size: 1, concurrency: 1, retries: 0 });
+      late_seconds: 0, burst_every: 0, burst_size: 0, jitter_ms: 0, rate_per_s: 0, speed: 0, batch_size: 1, concurrency: 1, retries: 0 });
   } catch (err) {
     $("formError").textContent = err.message;
     if (err.fieldId) $(err.fieldId).focus(); else if (err.field) revealField(err.field);
