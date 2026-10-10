@@ -38,6 +38,7 @@ type DatasetSummary struct {
 	LastTime   string            `json:"last_time,omitempty"`
 	Problems   map[string]int    `json:"problems,omitempty"` // rows the Signal Lab schema would reject, by reason
 	Derived    []string          `json:"derived,omitempty"`  // fields filled in by the importer (for example event_id)
+	Report     *DataReport       `json:"report,omitempty"`   // the "check my data" result
 	ImportedAt time.Time         `json:"imported_at"`
 }
 
@@ -351,20 +352,9 @@ func ParseDatasetMapped(name string, data []byte, lim event.Limits, now time.Tim
 	if !first.IsZero() {
 		d.Summary.FirstTime, d.Summary.LastTime = FormatTime(first), FormatTime(last)
 	}
-	problems := map[string]int{}
-	for _, rec := range d.Records {
-		raw, err := json.Marshal(rec)
-		if err != nil {
-			problems[event.ReasonMalformedJSON]++
-			continue
-		}
-		if _, rej := event.Parse(raw, lim, now); rej != nil {
-			problems[rej.Reason]++
-		}
-	}
-	if len(problems) > 0 {
-		d.Summary.Problems = problems
-	}
+	problems, report := analyze(d.Records, lim, now, haveID)
+	d.Summary.Problems = problems
+	d.Summary.Report = report
 	return d, nil
 }
 
