@@ -519,11 +519,68 @@ function describeDataset(d) {
   if (d.mapped) li("Columns recognised: " + Object.entries(d.mapped).map(([k, v]) => `${k} → ${v}`).join(", "));
   if (d.ignored?.length) li("Not sent (not Signal Lab fields): " + d.ignored.join(", "));
   if (d.derived?.length) li("Filled in for you: " + d.derived.join(", "));
-  const p = Object.entries(d.problems || {});
-  if (p.length) li(`Signal Lab's own checks would reject ${fmtInt(p.reduce((n, [, v]) => n + v, 0))} rows (${p.map(([k, v]) => `${v} ${k.replaceAll("_", " ")}`).join(", ")}). They are sent anyway, so you can see how your service reacts.`);
-  else li("Every row passes Signal Lab's own checks.");
+  if (!d.report) {
+    const p = Object.entries(d.problems || {});
+    if (p.length) li(`Signal Lab's own checks would reject ${fmtInt(p.reduce((n, [, v]) => n + v, 0))} rows (${p.map(([k, v]) => `${v} ${k.replaceAll("_", " ")}`).join(", ")}). They are sent anyway, so you can see how your service reacts.`);
+    else li("Every row passes Signal Lab's own checks.");
+  }
   li("Values are sent exactly as written in the file; units are not converted.");
   box.append(ul);
+  if (d.report) box.append(renderReport(d));
+}
+
+// ---- "check my data": what the file would run into, found before anything is sent ----
+const LEVEL_LABEL = { problem: "Problem", warning: "Check", ok: "OK" };
+const LEVEL_BADGE = { problem: "bad", warning: "warn", ok: "ok" };
+function fmtSecs(s) { return s == null || s === 0 ? "–" : s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${(s / 60).toFixed(1)} min` : `${(s / 3600).toFixed(1)} h`; }
+function renderReport(d) {
+  const r = d.report;
+  const wrap = el("div", { class: "dataCheck" });
+  wrap.append(el("div", { class: "head", text: "Data check (nothing has been sent yet)" }));
+  const ul = el("ul", { class: "findings" });
+  for (const f of r.findings) ul.append(el("li", {}, el("span", { class: `badge ${LEVEL_BADGE[f.level] || ""}`, text: LEVEL_LABEL[f.level] || f.level }), " ", f.text));
+  wrap.append(ul);
+  const det = el("details", { class: "dcDetails" }, el("summary", { text: "Details: examples, value ranges and each device" }));
+  if (r.rejections?.length) {
+    det.append(el("p", { class: "small", text: "Rows Signal Lab would reject (row 1 is the first row after the header):" }));
+    const rl = el("ul");
+    for (const g of r.rejections) rl.append(el("li", { text: `${g.count} × ${g.label || g.reason.replaceAll("_", " ")}. For example ${g.examples.map((e) => `row ${e.row}: ${e.detail}`).join("; ")}` }));
+    det.append(rl);
+  }
+  const ranges = [["Temperature", r.temperature_c, "°C"], ["Vibration", r.vibration_mm_s, "mm/s"]].filter(([, v]) => v);
+  if (ranges.length) det.append(el("p", { class: "small", text: ranges.map(([n, v, u]) => `${n}: ${v.min} to ${v.max} ${u}, average ${Math.round(v.mean * 100) / 100} (${fmtInt(v.count)} values)`).join(". ") + "." }));
+  if (r.devices?.length) {
+    const head = el("tr", {}, ...["Device", "Rows", "Usual spacing", "Longest silence", "Out of order", "Stuck runs"].map((h, i) => el("th", { class: i ? "num" : "", text: h })));
+    const body = el("tbody");
+    for (const x of r.devices) body.append(el("tr", {}, el("td", { text: x.device }), ...[fmtInt(x.rows), fmtSecs(x.usual_interval_seconds), fmtSecs(x.longest_gap_seconds), fmtInt(x.out_of_order), fmtInt(x.stuck_runs)].map((t) => el("td", { class: "num", text: t }))));
+    det.append(el("div", { class: "scroll-x", tabindex: "0", role: "region", "aria-label": "Per-device data check" }, el("table", {}, el("thead", {}, head), body)));
+    if (r.devices_total > r.devices.length) det.append(el("p", { class: "small muted", text: `Showing the ${r.devices.length} devices with the most findings, out of ${fmtInt(r.devices_total)}.` }));
+  }
+  wrap.append(det);
+  const copy = el("button", { type: "button", id: "dcCopy", text: "Copy report" });
+  const msg = el("span", { class: "muted small", role: "status", id: "dcCopyMsg" });
+  copy.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(reportText(d)); msg.textContent = " Copied."; } catch { msg.textContent = " Could not copy."; }
+    setTimeout(() => { msg.textContent = ""; }, 2500);
+  });
+  wrap.append(el("div", { class: "actions" }, copy, msg));
+  return wrap;
+}
+function reportText(d) {
+  const r = d.report;
+  const out = [`Signal Lab data check: ${d.name} (${d.format.toUpperCase()}, ${fmtInt(d.rows)} rows, ${fmtInt(r.devices_total)} devices)`];
+  if (d.first_time) out.push(`Times: ${fmtTime(d.first_time)} to ${fmtTime(d.last_time)}`);
+  out.push("");
+  for (const f of r.findings) out.push(`[${LEVEL_LABEL[f.level] || f.level}] ${f.text}`);
+  for (const g of r.rejections || []) out.push(`  ${g.count} x ${g.label || g.reason}: ` + g.examples.map((e) => `row ${e.row}: ${e.detail}`).join("; "));
+  if (r.temperature_c) out.push("", `Temperature: ${r.temperature_c.min} to ${r.temperature_c.max} (average ${Math.round(r.temperature_c.mean * 100) / 100})`);
+  if (r.vibration_mm_s) out.push(`Vibration: ${r.vibration_mm_s.min} to ${r.vibration_mm_s.max} (average ${Math.round(r.vibration_mm_s.mean * 100) / 100})`);
+  if (r.devices?.length) {
+    out.push("", "device | rows | usual spacing | longest silence | out of order | stuck runs");
+    for (const x of r.devices) out.push([x.device, x.rows, fmtSecs(x.usual_interval_seconds), fmtSecs(x.longest_gap_seconds), x.out_of_order, x.stuck_runs].join(" | "));
+  }
+  out.push("", "Rows are counted after the header. The file itself is not included in this report.");
+  return out.join("\n");
 }
 async function uploadDataset(file, choice) {
   if (file.size > replayLimits.dataset_bytes) throw new Error(`That file is larger than ${Math.round(replayLimits.dataset_bytes / 1048576)} MB.`);
