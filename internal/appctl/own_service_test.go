@@ -128,12 +128,27 @@ func TestImportedFileIsReplayedIntoTheBuiltInServiceAndCanBeRemoved(t *testing.T
 			Devices  int            `json:"devices"`
 			Problems map[string]int `json:"problems"`
 			Ignored  []string       `json:"ignored"`
+			Report   *struct {
+				Findings []struct{ Level, Text string } `json:"findings"`
+				Rejected []struct {
+					Reason   string `json:"reason"`
+					Count    int    `json:"count"`
+					Examples []struct {
+						Row int `json:"row"`
+					} `json:"examples"`
+				} `json:"rejections"`
+			} `json:"report"`
 		} `json:"dataset"`
 	}
 	if err := json.Unmarshal(raw, &imp); err != nil || code != 200 {
 		t.Fatalf("import: %d %s", code, raw)
 	}
 	d := imp.Dataset
+	// The data check comes with the import: the out-of-range row is a problem, pointed out by its row number.
+	if d.Report == nil || len(d.Report.Findings) == 0 || d.Report.Findings[0].Level != "problem" ||
+		len(d.Report.Rejected) != 1 || d.Report.Rejected[0].Reason != "out_of_range" || d.Report.Rejected[0].Examples[0].Row != 31 {
+		t.Fatalf("data check: %s", raw)
+	}
 	if d.Name != "my plant.csv" || d.Rows != 31 || d.Devices != 3 || d.Problems["out_of_range"] != 1 || len(d.Ignored) != 1 {
 		t.Fatalf("import summary: %+v", d)
 	}

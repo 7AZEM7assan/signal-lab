@@ -3,6 +3,10 @@
 All notable changes to Signal Lab. Installers for every version are on the
 [releases page](https://github.com/7AZEM7assan/signal-lab/releases).
 
+## Unreleased
+
+- **Check your data before you send it.** An imported file is checked as a whole and the app says in plain words what a replay would run into: rows Signal Lab would reject (with row numbers and why), repeated rows, rows out of time order, long silences, stuck sensors and the range of the values, with a table per device and a **Copy report** button. Nothing is changed or removed.
+
 ## 0.2.2 - 2026-10-09
 
 - **Choose which column is which.** A CSV, NDJSON or JSON file whose columns are not recognised is no longer

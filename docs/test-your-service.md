@@ -87,13 +87,33 @@ An exact Signal Lab name always wins over an alias. Other columns are **not sent
 lists them). The app's own CSV export imports as it is (`received_at` is skipped), so you can
 export a run, edit it, and replay it.
 
+### Check your data first
+
+As soon as a file is imported the app checks all of it, **before anything is sent**, and says in plain
+words what a replay would run into:
+
+![The data check of an imported file](screenshots/app-data-check.png)
+
+* **Rows Signal Lab would reject**, by reason, with the row numbers and what is wrong with them
+  (row 1 is the first row after the header).
+* **Repeated rows**: an `event_id` used twice, or the same device at the same time twice.
+* **Rows out of time order** for their device.
+* **Long silences**: a device that stops reporting for more than three times its usual spacing.
+* **Stuck sensors**: ten or more identical values in a row.
+* **Value ranges** for temperature and vibration, and a table per device (the twenty with the most
+  findings, if there are more).
+
+**Copy report** puts the same text on your clipboard (it holds counts, device names and row numbers,
+not the file itself). The check takes under a second for a file at the 200,000-row limit. It reports;
+it does not change or remove anything: every row is still sent, so you see how your service reacts.
+
 What to know:
 
 * **Values are sent exactly as written.** Units are not converted: if your temperatures are in
   Fahrenheit, they go out as Fahrenheit.
 * **Dirty rows are kept on purpose.** An empty cell is sent as a missing value, and text in a number
-  column is sent as text, so your service sees what your file really contains. The summary counts
-  the rows that Signal Lab's own schema would reject (and why); they are sent anyway.
+  column is sent as text, so your service sees what your file really contains. The data check
+  counts the rows that Signal Lab's own schema would reject (and why); they are sent anyway.
 * **Old timestamps**: many services refuse readings from the past or the future. Leave *Shift the
   times so the newest reading is now* on to move the whole file forward by the same amount.
 * **Faults still apply.** Malformed, duplicate and late rates, bursts and jitter work on your rows,

@@ -126,6 +126,12 @@ if (shotDir) await win.screenshot({ path: path.join(shotDir, "desktop-replay.png
   await win.click("#mapApply");
   check(await until(async () => (await win.innerText("#fileSummary")).includes("Zeit → event_time"), 10000), "after choosing, the summary shows the mapping", (await win.innerText("#fileSummary")).split("\n")[0]);
   check(await win.isVisible("#fMap") && !(await win.isVisible("#mapBox")), "'Change columns' is offered and the choice panel closes");
+  // The data check: findings about the file are shown before anything is sent, and can be copied as text.
+  check((await win.innerText("#fileSummary")).includes("Data check") && (await win.locator("#fileSummary .findings li").count()) >= 1, "the file gets a data check with at least one finding");
+  await win.click("#dcCopy");
+  check(await until(async () => (await win.innerText("#dcCopyMsg")).includes("Copied"), 3000), "'Copy report' reports that it copied");
+  const dcText = await app.evaluate(({ clipboard }) => clipboard.readText());
+  check(dcText.startsWith("Signal Lab data check: werk.csv") && dcText.includes("devices") && !dcText.includes("SECRET"), "the copied data check names the file and holds no keys", dcText.split("\n")[0]);
   const n1 = seen.length;
   await win.click("#btnStart");
   check(await until(() => seen.length > n1, 20000), "replaying the mapped file reaches your service");
