@@ -16,6 +16,18 @@ In scope: one Go service, one Python simulator/replayer/test harness, PostgreSQL
 
 Non-goals (kept out on purpose): Kubernetes, authentication and multi-tenancy, cloud deployment, real hardware integrations, ClickHouse, a rules engine, elaborate dashboards, exactly-once delivery. Extension points are listed [at the end](#extension-points).
 
+## What is in it
+
+Three parts that work together or on their own:
+
+| Part | What it is | Where |
+|---|---|---|
+| **Go service** | The ingest pipeline: validates readings, a bounded queue with backpressure (`429` plus `Retry-After`), persistence (PostgreSQL, or an embedded SQLite file in the desktop app), threshold alerts, a live WebSocket feed, health and Prometheus metrics | `cmd/`, `internal/` |
+| **Python tools** | A deterministic data generator, a replayer with seeded fault injection (malformed, duplicate and late records, bursts, jitter) and the automated tests, including a Docker Compose suite that runs the real service | `sim/` ([details](#replay-and-fault-injection)) |
+| **Desktop app** | The service with a control panel in a native window for Mac, Windows and Linux: run replays, aim them at an HTTP address of your own or at your own CSV/NDJSON/JSON file, and see status codes, `429` retries, latency and the first error | `desktop/` ([download](#download)) |
+
+It is a small reference and test project, not a production platform: the readings are simulated unless you supply a file, and the only performance numbers are local, single-machine results in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
+
 ## Ways to run it
 
 | | For | Needs | Storage |
