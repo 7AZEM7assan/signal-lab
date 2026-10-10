@@ -159,6 +159,9 @@ func (c Config) validateTarget() []error {
 		if c.RatePerS <= 0 || c.RatePerS > MaxExternalRate {
 			bad("for a service outside this computer the rate must be between 1 and %d records per second", int(MaxExternalRate))
 		}
+		if c.RampToPerS > MaxExternalRate {
+			bad("for a service outside this computer the ramp must stay within %d records per second", int(MaxExternalRate))
+		}
 	}
 	return errs
 }
