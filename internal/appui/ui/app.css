@@ -284,3 +284,19 @@ label.radio input { margin:0; flex:none; }
 .welcome { margin-bottom:14px; }
 .welcome .steps { margin:0 0 4px; padding-left:20px; display:grid; gap:6px; }
 .welcome em { font-style:normal; font-weight:600; }
+
+/* the run over time */
+.chart { margin:10px 0; }
+.chart h3 { margin:0 0 4px; font-size:13px; }
+.tlsvg { width:100%; height:auto; display:block; }
+.ch-grid { stroke:var(--line); stroke-width:1; }
+.ch-sent, .ch-ok, .ch-lat { fill:none; stroke-width:1.8; stroke-linejoin:round; }
+.ch-sent { stroke:var(--accent); stroke-width:5; stroke-opacity:.45; }
+.ch-ok { stroke:var(--ok); }
+.ch-lat { stroke:var(--warn); stroke-dasharray:4 3; }
+.ch-bad { fill:var(--bad); }
+.ch-t { fill:var(--muted); font-size:10px; font-family:var(--font); }
+.chlegend { display:flex; flex-wrap:wrap; gap:4px 14px; margin:2px 0 6px; color:var(--muted); }
+.chlegend .k::before { content:""; display:inline-block; width:12px; height:3px; margin-right:5px; vertical-align:middle; background:currentColor; border-radius:2px; }
+.chlegend .k.sent::before { background:var(--accent); } .chlegend .k.ok::before { background:var(--ok); }
+.chlegend .k.lat::before { background:var(--warn); } .chlegend .k.bad::before { background:var(--bad); height:8px; width:8px; border-radius:1px; }

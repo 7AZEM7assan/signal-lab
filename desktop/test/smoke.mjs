@@ -114,6 +114,20 @@ if (shotDir) await win.screenshot({ path: path.join(shotDir, "desktop-replay.png
   await win.click("#btnProbe");
   check(await until(async () => (await win.innerText("#runDoneText").catch(() => "")).startsWith("Replay done: 1 sent to http://127.0.0.1"), 20000), "'Send one test record' sends one reading and reports it", await win.innerText("#runDoneText").catch(() => ""));
   check(seen.length === before + 1 && seen.at(-1).key === "abc123" && seen.at(-1).token === undefined, "the test record carries your header and not the app's token", `${seen.length - before} request(s)`);
+  // A ramp: the rate climbs from 50 to 200 records a second over 4 s, and the run is drawn second by second.
+  const keep = {};
+  for (const k of ["devices", "duration_s", "rate_per_s", "ramp_to_per_s", "ramp_s", "batch_size"]) keep[k] = await win.inputValue(`#fields [name="${k}"]`);
+  for (const [k, v] of Object.entries({ devices: "10", duration_s: "60", rate_per_s: "50", ramp_to_per_s: "200", ramp_s: "4", batch_size: "10" })) await win.fill(`#fields [name="${k}"]`, v);
+  const nRamp = seen.length;
+  await win.click("#btnStart");
+  check(await until(async () => (await win.innerText("#rpState")) === "done", 30000), "a ramped replay finishes");
+  check(await until(() => win.isVisible("#rpChart"), 8000), "the run over time is drawn for a run of a few seconds");
+  const chartText = await win.innerText("#rpChart");
+  check(chartText.includes("Run over time") && /Sent up to \d/.test(chartText) && (await win.locator("#rpChart polyline").count()) === 3, "the chart has three lines and a summary", chartText.replace(/\n+/g, " | ").slice(0, 120));
+  const tlJson = await win.evaluate(() => fetch("/app/api/replay/timeline").then((r) => r.json()));
+  const reqs = tlJson.points.reduce((n, p) => n + p.requests, 0);
+  check(reqs === 30 && seen.length === nRamp + 30 && tlJson.points.length >= 3, "the timeline counts every request (30 requests of 10 readings)", `${reqs} requests, ${tlJson.points.length} seconds`);
+  for (const [k, v] of Object.entries(keep)) await win.fill(`#fields [name="${k}"]`, v);
   // A file whose columns are not recognised asks which column is which; the service then gets the right fields.
   const csvPath = path.join(tmp("signal-lab-csv-"), "werk.csv");
   fs.writeFileSync(csvPath, "Zeit,Maschine,Grad,Schwingung\n2025-01-15T08:00:00Z,press-01,61.5,2.1\n2025-01-15T08:00:02Z,pump-02,70.25,3.0\n");
