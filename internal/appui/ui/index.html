@@ -103,6 +103,16 @@
   <div class="replay-grid">
     <form id="replayForm" class="card" autocomplete="off">
       <h2>Run a replay</h2>
+      <div class="scenarios" id="scenarioBox">
+        <div class="chips" id="myScenarios" role="group" aria-label="Your saved scenarios"></div>
+        <div class="actions"><button type="button" id="scSaveOpen">Save these settings as a scenario…</button><span id="scMsg" class="small muted" role="status"></span></div>
+        <div id="scSaveBox" class="scSave" hidden>
+          <label for="scName">Name</label>
+          <input id="scName" type="text" maxlength="60" autocomplete="off" spellcheck="false" placeholder="for example: staging, 5k per second">
+          <button type="button" class="primary" id="scSave">Save</button><button type="button" id="scCancel">Cancel</button>
+          <p class="small muted">Saves the settings on this computer. Header values and the part of an address after a <code>?</code> are not saved, and a file is not saved: import it again when you use the scenario.</p>
+        </div>
+      </div>
       <p class="muted">Sends machine readings to a service the way any client would, and can damage some of them on purpose. By default the readings are simulated and go to this app's own service; you can also send them to a service of your own, and use your own data file.</p>
 
       <fieldset class="choice" id="destBox">
@@ -158,8 +168,16 @@
       <p id="rpSummary" class="summary" hidden></p>
       <div id="rpChart" class="chart" hidden></div>
       <div class="stats" id="rpStats"></div>
-      <div class="actions"><button type="button" id="rpCopy" hidden>Copy results</button><span id="rpCopyMsg" class="small muted" role="status"></span></div>
+      <div class="actions"><button type="button" id="rpCopy" hidden>Copy results</button><a class="btn" id="rpReport" href="/app/api/replay/report" download hidden>Download report</a><a class="btn" id="rpReportJson" href="/app/api/replay/report?format=json" download hidden>JSON</a><span id="rpCopyMsg" class="small muted" role="status"></span></div>
     </div>
+  </div>
+  <div class="card" id="historyCard">
+    <h2>Past runs</h2>
+    <p class="muted small">The last 30 replays, kept on this computer without any header values. Tick two to compare them.</p>
+    <p id="historyEmpty" class="muted">No finished replay yet.</p>
+    <div class="scroll-x" tabindex="0" role="region" aria-label="Past runs" id="historyWrap" hidden><table id="historyTable"><thead><tr><th><span class="sr">Compare</span></th><th>Started</th><th>Sent to</th><th>Data</th><th class="num">Records</th><th class="num">Peak accepted/s</th><th class="num">429</th><th class="num">p95 ms</th></tr></thead><tbody></tbody></table></div>
+    <div class="actions"><button type="button" id="hCompare" disabled>Compare the two ticked runs</button><button type="button" id="hClear" hidden>Clear history</button><span id="hMsg" class="small muted" role="status"></span></div>
+    <div id="compareBox" class="compare" hidden></div>
   </div>
 </section>
 

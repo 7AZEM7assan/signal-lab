@@ -93,6 +93,7 @@ type Runner struct {
 	done    chan struct{}
 	dataset *Dataset
 
+	onDone      func(Snapshot, Timeline)
 	tl          []bucket // one entry per second of the latest run
 	tlTruncated bool
 }
@@ -287,7 +288,6 @@ func (r *Runner) run(ctx context.Context, cfg Config, target Target, batches [][
 	wg.Wait()
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.snap.ElapsedS = time.Since(start).Seconds()
 	switch {
 	case ctx.Err() != nil:
@@ -296,6 +296,19 @@ func (r *Runner) run(ctx context.Context, cfg Config, target Target, batches [][
 		r.snap.State = StateDone
 	}
 	r.cancel = nil
+	hook := r.onDone
+	r.mu.Unlock()
+	if hook != nil {
+		hook(r.Snapshot(), r.Timeline())
+	}
+}
+
+// SetOnDone registers a function called once each time a run ends (done or stopped), with its final
+// numbers and its per-second record. It runs on the runner's own goroutine, after the run is marked ended.
+func (r *Runner) SetOnDone(f func(Snapshot, Timeline)) {
+	r.mu.Lock()
+	r.onDone = f
+	r.mu.Unlock()
 }
 
 func sleep(ctx context.Context, d time.Duration) bool {
