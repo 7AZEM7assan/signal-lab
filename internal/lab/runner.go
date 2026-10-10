@@ -92,6 +92,9 @@ type Runner struct {
 	cancel  context.CancelFunc
 	done    chan struct{}
 	dataset *Dataset
+
+	tl          []bucket // one entry per second of the latest run
+	tlTruncated bool
 }
 
 // NewRunner creates an idle runner. It never follows redirects: a redirect would resend the
@@ -193,6 +196,7 @@ func (r *Runner) Start(cfg Config, target Target, maxBatch int) (Snapshot, error
 		Injected: &injected, RejectionCounts: map[string]int{}, StatusCounts: map[string]int{},
 		Target: label, External: external, Source: source}
 	r.lat = r.lat[:0]
+	r.tl, r.tlTruncated = nil, false
 	r.cancel = cancel
 	r.done = make(chan struct{})
 	done := r.done
@@ -398,6 +402,14 @@ func (r *Runner) sendBatch(ctx context.Context, target Target, cfg Config, batch
 			success = rep.status >= 200 && rep.status < 300
 		}
 		retryable := rep.status == http.StatusTooManyRequests || rep.status == http.StatusServiceUnavailable
+		switch {
+		case rep.err != nil || (!success && !retryable):
+			r.tick(started, len(batch), outcomeError, elapsed)
+		case success:
+			r.tick(started, len(batch), outcomeOK, elapsed)
+		default:
+			r.tick(started, len(batch), outcomeThrottled, elapsed)
+		}
 		switch {
 		case rep.err != nil || (!success && !retryable):
 			r.snap.RequestErrors++

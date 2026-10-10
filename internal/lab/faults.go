@@ -2,6 +2,7 @@ package lab
 
 import (
 	"encoding/json"
+	"math"
 	"math/rand/v2"
 	"time"
 )
@@ -127,6 +128,9 @@ func Schedule(planned []Planned, c Config) ([][]Planned, []float64) {
 		at := 0.0
 		if c.RatePerS > 0 {
 			at = float64(sent) / c.RatePerS
+			if c.RampToPerS > 0 && c.RampS > 0 {
+				at = rampTime(float64(sent), c.RatePerS, c.RampToPerS, c.RampS)
+			}
 		}
 		if c.Speed > 0 && len(b) > 0 {
 			// Follow the recorded time: a batch goes out when its first reading's moment comes up. The
@@ -154,4 +158,18 @@ func applyBursts(schedule []float64, c Config) []float64 {
 		}
 	}
 	return out
+}
+
+// rampTime is the moment the n-th record is due when the rate changes in a straight line from r0 to r1
+// records per second over rampS seconds and then holds r1. Records sent by time t: r0*t + (r1-r0)*t*t/(2*rampS).
+func rampTime(n, r0, r1, rampS float64) float64 {
+	a := (r1 - r0) / (2 * rampS)
+	during := r0*rampS + a*rampS*rampS // records sent when the ramp ends
+	if n <= during {
+		if math.Abs(a) < 1e-12 {
+			return n / r0
+		}
+		return (-r0 + math.Sqrt(math.Max(0, r0*r0+4*a*n))) / (2 * a)
+	}
+	return rampS + (n-during)/r1
 }
