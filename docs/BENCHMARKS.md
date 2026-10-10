@@ -96,3 +96,52 @@ more waiting.
 
 To reproduce: `make up && make load` (see the README), and record your own environment alongside the
 numbers.
+
+# Desktop app: a ramp against the built-in service
+
+A second, separate local exercise, made with the desktop app's **ramp** (Replay > *Ramp up to*) and the
+per-second timeline it records. It describes how the app's own built-in service (the Go ingest engine with an
+embedded SQLite database) behaved on one laptop on this date. It is **not** a capacity rating and not
+comparable to the full-stack results above.
+
+Date: 2026-10-10. Code: the desktop app at version 0.2.3 plus the ramp and timeline change (the repository's
+`main` once that change is merged).
+
+| | |
+|---|---|
+| Machine | Apple MacBook (Mac14,2), Apple M2, 8 cores, 8 GB RAM, macOS 27.0.1 |
+| Service | the app's built-in service with its default settings: queue 1,000, 4 workers, worker batch 100 |
+| Sender | the app itself, on the **same machine**: 16 connections, 100 records per request, no retries |
+| Data | 500,000 simulated readings (200 devices, seed 1), no faults |
+| Ramp | 500 records/s climbing in a straight line to 20,000 records/s over 30 s, then held (about 40 s in all) |
+
+How it was run: the app was started with an empty data folder for each run, and the replay was started with
+`POST /app/api/replay/start` using `{"seed":1,"devices":200,"duration_s":5000,"interval_s":2,"anomaly_rate":0,
+"rate_per_s":500,"ramp_to_per_s":20000,"ramp_s":30,"batch_size":100,"concurrency":16,"retries":0}`; the results
+are the replay summary and `GET /app/api/replay/timeline`. "Sent" is how hard the service was pushed in a
+second; "accepted" is what it queued (a 202 answer). Three runs:
+
+| Run | Peak sent / s | Peak accepted / s | First 429 | Requests answered 429 | Accepted of 500,000 | Stored afterwards | Latency p95 / p99 / max (ms) |
+|---|---|---|---|---|---|---|---|
+| 1 | 20,100 | 12,700 | at 15 s, while sending 9,900 / s | 2,094 | 290,600 | 290,600 | 2.1 / 2.8 / 11.0 |
+| 2 | 20,000 | 12,000 | at 12 s, while sending 7,800 / s | 2,598 | 240,200 | 240,200 | 2.7 / 6.1 / 73.3 |
+| 3 | 20,000 | 12,400 | at 17 s, while sending 11,100 / s | 1,740 | 326,000 | 326,000 | 2.2 / 3.2 / 66.5 |
+
+What it shows:
+
+- On this machine the built-in service took about **12,000 to 12,700 records per second** at its best second
+  and began answering `429` (queue full) once the sender passed roughly **8,000 to 11,000 records per second**.
+  From then on the service accepted what its queue could take and refused the rest; with retries off, the refused
+  records were not resent (that is why "accepted" is below 500,000: each `429` request carried 100 records).
+- Nothing it accepted was lost: the number stored afterwards equals the number accepted in every run, and there
+  were 0 request errors.
+- Request latency stayed in single-digit milliseconds at the 95th and 99th percentile; the slowest request in a
+  run took up to 73 ms.
+
+What it does not show: the sender and the service shared one laptop and competed for its 8 cores, so a separate
+sender would probably push harder; the numbers are for the embedded database with default queue and worker
+settings only; three runs on one machine, with no isolation from other programs. The point where `429`s begin
+varied by about 3,000 records per second between runs, so treat the spread as part of the result.
+
+To reproduce, start the app, open **Replay**, choose the *Find the limit* preset (a smaller ramp) or enter the
+numbers above, and read the chart; or use the API call above and `GET /app/api/replay/timeline`.

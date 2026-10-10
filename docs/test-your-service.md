@@ -137,6 +137,26 @@ By default a replay sends as fast as the **Rate** allows. To send your file the 
 
 It works for the simulated readings too: Speed 1 plays the simulated minutes in real time.
 
+## Find where a service gives up (ramp and chart)
+
+Set **Ramp up to (records/s)** and **Ramp time (s)** under *Sending*. The rate then climbs in a straight line from
+**Rate** to the final rate over the ramp time and holds it, so you can see at which speed your service starts
+answering `429`, slowing down or failing. (*Find the limit* is a ready-made preset for the built-in service.)
+
+While the replay runs, and afterwards, **Run over time** draws the run second by second:
+
+![The run over time](screenshots/app-ramp.png)
+
+* **sent per second** (blue, behind) is how hard the service was pushed; **accepted per second** (green) is what it
+  took; **p95 latency** (amber, dashed, right scale) is how long the slowest 5% of requests took.
+* A **red bar** marks every second that had `429` answers or errors.
+* Under the chart the app says in words when the first `429` or error came and how many records a second were
+  being sent then. **Copy results** includes this text.
+
+For a service outside this computer the final rate may not exceed 2,000 records per second, like the rate itself.
+The chart keeps the first hour of a run. A measured example, with the machine and the method, is in
+[BENCHMARKS.md](BENCHMARKS.md).
+
 ## What to try
 
 | Question | Setting | What to look for |
