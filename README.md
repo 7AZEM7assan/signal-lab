@@ -1,5 +1,9 @@
 # Signal Lab
 
+[![ci](https://github.com/7AZEM7assan/signal-lab/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/7AZEM7assan/signal-lab/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/7AZEM7assan/signal-lab)](https://github.com/7AZEM7assan/signal-lab/releases/latest)
+[![Go](https://img.shields.io/github/go-mod/go-version/7AZEM7assan/signal-lab)](go.mod)
+[![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)](#download)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A **simulated telemetry replay and validation lab**. It replays recorded (simulated) factory sensor data through a Go telemetry service, injects controllable faults, shows accepted events and alerts on a live WebSocket feed, exposes health and Prometheus metrics, and validates the behaviour with automated Python tests.
