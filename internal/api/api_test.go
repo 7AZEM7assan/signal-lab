@@ -45,14 +45,19 @@ func (f *fakeIngest) Depth() int    { return 3 }
 func (f *fakeIngest) Capacity() int { return 10 }
 
 type fakeDB struct {
-	pingErr  error
-	queryErr error
-	events   []event.Event
-	next     *store.Page
-	lastQ    store.Query
+	pingErr    error
+	pendingErr error
+	pending    []string
+	queryErr   error
+	events     []event.Event
+	next       *store.Page
+	lastQ      store.Query
 }
 
 func (f *fakeDB) Ping(context.Context) error { return f.pingErr }
+func (f *fakeDB) PendingMigrations(context.Context) ([]string, error) {
+	return f.pending, f.pendingErr
+}
 func (f *fakeDB) QueryEvents(_ context.Context, q store.Query) ([]event.Event, *store.Page, error) {
 	f.lastQ = q
 	return f.events, f.next, f.queryErr
@@ -297,6 +302,27 @@ func TestHealthAndReadiness(t *testing.T) {
 		t.Fatalf("healthz must stay 200 when the database is down, got %d", resp.StatusCode)
 	}
 	h.db.pingErr = nil
+
+	// An un-migrated database answers Ping but cannot take writes.
+	h.db.pending = []string{"0001_init", "0002_later"}
+	resp, out = get(t, h, "/readyz")
+	if resp.StatusCode != 503 || out["checks"].(map[string]any)["migrations"] != "2 pending, oldest 0001_init" {
+		t.Fatalf("readyz with migrations pending = %d %v", resp.StatusCode, out)
+	}
+	if resp, _ := get(t, h, "/healthz"); resp.StatusCode != 200 { // liveness must not depend on the schema
+		t.Fatalf("healthz must stay 200 when migrations are pending, got %d", resp.StatusCode)
+	}
+	h.db.pending = nil
+
+	// The connection works but the check itself failed: never claim a
+	// schema state that was not observed.
+	h.db.pendingErr = errors.New("boom")
+	resp, out = get(t, h, "/readyz")
+	if resp.StatusCode != 503 || out["checks"].(map[string]any)["migrations"] != "unknown" {
+		t.Fatalf("readyz with an unreadable migration state = %d %v", resp.StatusCode, out)
+	}
+	h.db.pendingErr = nil
+
 	h.srv.SetDraining()
 	if resp, _ := get(t, h, "/readyz"); resp.StatusCode != 503 {
 		t.Fatalf("readyz while draining = %d", resp.StatusCode)

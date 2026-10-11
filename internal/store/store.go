@@ -64,6 +64,18 @@ func (s *Store) Ping(ctx context.Context) (err error) {
 	return s.pool.Ping(ctx)
 }
 
+// PendingMigrations reports embedded migrations the database does not record.
+// An empty result means the schema is up to date; it is used by /readyz, so an
+// instance started against an un-migrated database does not report ready and
+// then reject writes.
+func (s *Store) PendingMigrations(ctx context.Context) (pending []string, err error) {
+	start := time.Now()
+	defer func() { s.observe("pending_migrations", start, err) }()
+	ctx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	return PendingMigrations(ctx, s.pool)
+}
+
 // Result describes one PersistBatch call.
 type Result struct {
 	Inserted []event.Event // newly stored events (duplicates omitted), in input order

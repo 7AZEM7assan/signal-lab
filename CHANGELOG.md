@@ -3,6 +3,10 @@
 All notable changes to Signal Lab. Installers for every version are on the
 [releases page](https://github.com/7AZEM7assan/signal-lab/releases).
 
+## Unreleased
+
+- **`/readyz` now checks the schema, not just the connection.** An instance started against an un-migrated or partially migrated database used to report ready and then reject writes. The probe compares the embedded migrations with `schema_migrations` and returns 503 with `"migrations": "N pending, oldest ..."` when it is behind. `/healthz` (liveness) is unchanged.
+
 ## 0.2.5 - 2026-10-10
 
 - **Save scenarios.** Replay settings can be saved by name and loaded again with one click. Header values, the permission tick and an address's query string are never saved.

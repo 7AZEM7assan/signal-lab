@@ -110,6 +110,11 @@ func (s *Store) Ping(ctx context.Context) (err error) {
 	return s.db.PingContext(ctx)
 }
 
+// PendingMigrations always reports none. The SQLite store applies its whole
+// schema in Open with CREATE TABLE IF NOT EXISTS, so there is no versioned
+// migration state to be behind on; the method exists to satisfy api.Querier.
+func (s *Store) PendingMigrations(context.Context) ([]string, error) { return nil, nil }
+
 func micro(t time.Time) int64 { return t.UnixMicro() }
 
 func fromMicro(us int64) time.Time { return time.UnixMicro(us).UTC() }

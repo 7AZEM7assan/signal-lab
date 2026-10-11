@@ -353,7 +353,7 @@ Full definitions: [`docs/openapi.yaml`](docs/openapi.yaml). Errors use `{"error"
 | Endpoint | Purpose |
 |---|---|
 | `GET /healthz` | Liveness. 200 while the process runs; does not check the database. |
-| `GET /readyz` | Readiness. 200 only if the database answers a ping **and** the service is not draining; otherwise 503. |
+| `GET /readyz` | Readiness. 200 only if the database answers a ping, every embedded migration is recorded in `schema_migrations`, **and** the service is not draining; otherwise 503, with a `checks` object naming the failing one. |
 | `POST /api/v1/events` | Ingest `{"events":[...]}` (max 500 events, 1 MiB by default). |
 | `GET /api/v1/events` | Query events. `from`, `to` required (RFC 3339, half-open `[from, to)`, at most 24 h apart); optional `device_id`, `limit` (1–1000, default 100), `cursor`. Ordered by `(event_time, event_id)`; a response with more rows includes `next_cursor`. |
 | `GET /api/v1/alerts` | Same parameters; alerts ordered by `(event_time, alert_id)`. |
@@ -633,7 +633,6 @@ If you record numbers, record them as local results with the environment: CPU mo
 - Single instance only: no clustering, no shared queue, WebSocket fan-out is in-process.
 - No replay or resume for WebSocket clients; no ordering guarantee across events.
 - Thresholds are static and global; there is no per-device configuration, hysteresis or alert de-duplication across events (one alert per event per rule, so a sustained fault produces an alert for every reading).
-- `/readyz` checks database connectivity, not that migrations have been applied.
 - Timestamps are stored at microsecond precision.
 - NGINX is a demo front door, not a hardened edge.
 
