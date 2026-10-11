@@ -58,6 +58,51 @@ so you can find the requests in your own logs.
 * **Redirects are not followed**: a redirect would resend your headers to another address and turn
   the `POST` into a `GET`. A `301`/`307` is reported as an error so you can fix the address.
 
+## Troubleshooting
+
+If a run fails, use **Send one test record** first. It sends one simulated reading with the
+same address and headers as a full replay, so it is a quick way to separate an address or
+authentication problem from a load problem.
+
+### Connection refused or the wrong port
+
+The run shows a request error, and **First problem** keeps the transport error without repeating
+the address. Check that the service is running, that the port is correct, and that the address
+has the right path. For the toy receiver, use
+`http://127.0.0.1:3000/ingest` and start it before pressing **Send one test record**.
+
+### 401 or 403
+
+The status appears in **Responses**, and **First problem** shows the status and the beginning of
+the service's answer. Check the header name, value and permission: the toy receiver's
+`--api-key secret` option expects `X-Api-Key: secret`, and a missing or wrong key returns
+`401`. A `403` means the service understood the request but will not allow it with the
+credentials or permissions supplied.
+
+### 429 or 503
+
+The status appears in **Responses** and the sender retries the batch. Check the service's
+`Retry-After` value, then reduce **Rate**, **Batch size** or **Connections** if the service is
+still overloaded; increase **Retries on 429** when more attempts are appropriate. Both `429`
+and `503` are retried. A numeric `Retry-After` or HTTP date is honoured for at most 5 seconds;
+when it is absent, the wait is 1 second. The toy receiver returns `429` with
+`Retry-After: 1` when its pretend queue is full.
+
+### Self-signed TLS
+
+A certificate failure is reported as a request error in **First problem**; certificates are
+always verified and there is no switch to bypass verification. For a local toy service, use
+plain `http://127.0.0.1` (with its port) instead of an HTTPS address with a self-signed
+certificate.
+
+### A service rejects old timestamps
+
+The service's status and the first answer appear in **Responses** and **First problem**. Check
+whether the target accepts historical `event_time` values. For a file replay, enable **Shift
+the times so the newest reading is now**; the app moves the complete file by one offset,
+preserving the spacing between readings. This is useful when a target rejects readings that
+are too far in the past (or future).
+
 ## Use your own data
 
 Under **Data to send** choose **My own file** and pick a CSV, NDJSON (one JSON object per line) or
