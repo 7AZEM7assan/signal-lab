@@ -1,5 +1,5 @@
 # CI builds from a mirror of the same image (GO_IMAGE) so a Docker Hub rate limit cannot fail a build.
-ARG GO_IMAGE=golang:1.25-alpine
+ARG GO_IMAGE=golang:1.26-alpine
 FROM ${GO_IMAGE} AS build
 WORKDIR /src
 COPY go.mod go.sum ./
