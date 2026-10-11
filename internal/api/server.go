@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -35,6 +36,9 @@ type Ingestor interface {
 // Querier is the read path and readiness probe (implemented by *store.Store).
 type Querier interface {
 	Ping(ctx context.Context) error
+	// PendingMigrations reports embedded migrations the database does not
+	// record. Empty means the schema is up to date.
+	PendingMigrations(ctx context.Context) ([]string, error)
 	QueryEvents(ctx context.Context, q store.Query) ([]event.Event, *store.Page, error)
 	QueryAlerts(ctx context.Context, q store.Query) ([]alert.Alert, *store.Page, error)
 }
@@ -86,10 +90,19 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
-	checks := map[string]string{"database": "ok", "draining": "no"}
+	checks := map[string]string{"database": "ok", "migrations": "ok", "draining": "no"}
 	ready := true
 	if err := s.DB.Ping(r.Context()); err != nil {
 		checks["database"] = "unavailable"
+		checks["migrations"] = "unknown"
+		ready = false
+	} else if pending, err := s.DB.PendingMigrations(r.Context()); err != nil {
+		// The connection works but the check does not: report it rather
+		// than claim a schema state that was never observed.
+		checks["migrations"] = "unknown"
+		ready = false
+	} else if len(pending) > 0 {
+		checks["migrations"] = fmt.Sprintf("%d pending, oldest %s", len(pending), pending[0])
 		ready = false
 	}
 	if s.draining.Load() {

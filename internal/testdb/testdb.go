@@ -21,6 +21,18 @@ import (
 
 func New(t *testing.T) *pgxpool.Pool {
 	t.Helper()
+	pool := newSchema(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := store.Migrate(ctx, pool); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	return pool
+}
+
+// newSchema creates the isolated schema and a pool pointed at it.
+func newSchema(t *testing.T) *pgxpool.Pool {
+	t.Helper()
 	url := os.Getenv("SIGNALLAB_TEST_DATABASE_URL")
 	if url == "" {
 		if os.Getenv("SIGNALLAB_REQUIRE_DB") == "1" {
@@ -57,9 +69,9 @@ func New(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-
-	if _, err := store.Migrate(ctx, pool); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
 	return pool
 }
+
+// NewUnmigrated is New without applying the migrations, for tests that need to
+// see a database nobody has migrated (the /readyz schema check).
+func NewUnmigrated(t *testing.T) *pgxpool.Pool { return newSchema(t) }

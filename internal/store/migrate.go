@@ -3,11 +3,13 @@ package store
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"sort"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -39,21 +41,14 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
 		return nil, fmt.Errorf("migrate: create schema_migrations: %w", err)
 	}
 
-	entries, err := fs.ReadDir(migrationFS, "migrations")
+	versions, err := embeddedVersions()
 	if err != nil {
 		return nil, err
 	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".sql") {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
 
 	var applied []string
-	for _, name := range names {
-		version := strings.TrimSuffix(name, ".sql")
+	for _, version := range versions {
+		name := version + ".sql"
 		var exists bool
 		if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`, version).Scan(&exists); err != nil {
 			return applied, fmt.Errorf("migrate: check %s: %w", version, err)
@@ -83,4 +78,66 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
 		applied = append(applied, version)
 	}
 	return applied, nil
+}
+
+// undefinedTable is PostgreSQL's SQLSTATE for a missing relation.
+const undefinedTable = "42P01"
+
+// embeddedVersions lists every embedded migration version in filename order.
+func embeddedVersions() ([]string, error) {
+	entries, err := fs.ReadDir(migrationFS, "migrations")
+	if err != nil {
+		return nil, err
+	}
+	versions := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".sql") {
+			versions = append(versions, strings.TrimSuffix(e.Name(), ".sql"))
+		}
+	}
+	sort.Strings(versions)
+	return versions, nil
+}
+
+// PendingMigrations lists embedded migrations that schema_migrations does not
+// record, in filename order. A missing schema_migrations table means nothing
+// has been applied, so every version is pending rather than an error: an
+// un-migrated database is the case this is here to report.
+//
+// One indexed query over a table with one row per migration, cheap enough for
+// a readiness probe.
+func PendingMigrations(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
+	want, err := embeddedVersions()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := pool.Query(ctx, `SELECT version FROM schema_migrations WHERE version = ANY($1)`, want)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == undefinedTable {
+			return want, nil
+		}
+		return nil, fmt.Errorf("migrate: read schema_migrations: %w", err)
+	}
+	defer rows.Close()
+
+	applied := make(map[string]bool, len(want))
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, fmt.Errorf("migrate: scan schema_migrations: %w", err)
+		}
+		applied[v] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("migrate: read schema_migrations: %w", err)
+	}
+
+	var pending []string
+	for _, v := range want {
+		if !applied[v] {
+			pending = append(pending, v)
+		}
+	}
+	return pending, nil
 }

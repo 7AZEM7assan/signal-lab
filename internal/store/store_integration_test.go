@@ -200,3 +200,53 @@ func TestCanceledContextFailsFastWithoutPanic(t *testing.T) {
 		t.Fatal("expected an error for a cancelled context")
 	}
 }
+
+func TestPendingMigrationsReportsAnUnmigratedSchema(t *testing.T) {
+	// A schema with no schema_migrations table at all: what /readyz sees when
+	// an instance is started against a database nobody migrated.
+	pool := testdb.NewUnmigrated(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	pending, err := store.PendingMigrations(ctx, pool)
+	if err != nil {
+		t.Fatalf("PendingMigrations on a bare schema: %v", err)
+	}
+	if len(pending) == 0 {
+		t.Fatal("expected every migration to be pending on a bare schema")
+	}
+
+	if _, err := store.Migrate(ctx, pool); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	pending, err = store.PendingMigrations(ctx, pool)
+	if err != nil {
+		t.Fatalf("PendingMigrations after migrating: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("expected nothing pending after migrating, got %v", pending)
+	}
+}
+
+func TestPendingMigrationsReportsAPartiallyMigratedSchema(t *testing.T) {
+	st := newStore(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Forget one applied migration: the same state as a database migrated by
+	// an older build of the binary.
+	var forgotten string
+	if err := st.Pool().QueryRow(ctx,
+		`DELETE FROM schema_migrations WHERE version = (SELECT min(version) FROM schema_migrations) RETURNING version`,
+	).Scan(&forgotten); err != nil {
+		t.Fatalf("forget a migration: %v", err)
+	}
+
+	pending, err := st.PendingMigrations(ctx)
+	if err != nil {
+		t.Fatalf("PendingMigrations: %v", err)
+	}
+	if len(pending) != 1 || pending[0] != forgotten {
+		t.Fatalf("expected %q pending, got %v", forgotten, pending)
+	}
+}
