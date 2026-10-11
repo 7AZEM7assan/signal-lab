@@ -64,11 +64,11 @@ jobs:
       - run: cd sim && python -m pytest -m sil -v
         env:
           POSTGRES_IMAGE: public.ecr.aws/docker/library/postgres:17-alpine
-          GO_IMAGE: public.ecr.aws/docker/library/golang:1.25-alpine
+          GO_IMAGE: public.ecr.aws/docker/library/golang:1.26-alpine
 
   docker:
     name: Container build
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - run: docker build --build-arg GO_IMAGE=public.ecr.aws/docker/library/golang:1.25-alpine -t signallab:ci .
+      - run: docker build --build-arg GO_IMAGE=public.ecr.aws/docker/library/golang:1.26-alpine -t signallab:ci .

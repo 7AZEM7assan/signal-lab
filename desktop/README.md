@@ -24,7 +24,7 @@ and Linux; the Intel Mac and Windows builds are made by CI and not yet run on a 
 **Building it yourself is the most reliable route**, and it avoids the warnings above on macOS:
 
 ```bash
-# needs Go 1.25+ and Node.js 22+
+# needs Go 1.26+ and Node.js 22+
 git clone https://github.com/7AZEM7assan/signal-lab && cd signal-lab
 make desktop-dist          # installer / app for THIS operating system in desktop/dist/
 ```

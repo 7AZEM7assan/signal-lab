@@ -625,7 +625,7 @@ If you record numbers, record them as local results with the environment: CPU mo
 - **[`prometheus/client_golang`](https://github.com/prometheus/client_golang)** with a private registry (so tests can create many).
 - **Migrations:** a ~90-line embedded runner instead of a migration framework, because there is one schema and the behaviour (ordered files, one transaction each, advisory lock) is easy to read.
 - **Python:** standard library only for the simulator. `pytest` and `websockets` are dev/test dependencies; NumPy was not needed for nearest-rank percentiles.
-- Images: `postgres:17-alpine`, `nginx:1.28-alpine`, `prom/prometheus:v3.5.0`, `golang:1.25-alpine` → `distroless/static`.
+- Images: `postgres:17-alpine`, `nginx:1.28-alpine`, `prom/prometheus:v3.5.0`, `golang:1.26-alpine` → `distroless/static`.
 
 ## Known limitations
 

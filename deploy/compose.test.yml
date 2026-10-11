@@ -28,7 +28,7 @@ services:
       context: ..
       dockerfile: Dockerfile
       args:
-        GO_IMAGE: ${GO_IMAGE:-golang:1.25-alpine}
+        GO_IMAGE: ${GO_IMAGE:-golang:1.26-alpine}
     environment:
       SIGNALLAB_DATABASE_URL: postgres://signallab:signallab@postgres:5432/signallab_test?sslmode=disable
       SIGNALLAB_AUTO_MIGRATE: "true"

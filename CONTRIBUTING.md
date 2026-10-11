@@ -13,7 +13,7 @@ change is "does it keep the project small, readable and honest about what it doe
 
 ## Setting up
 
-Prerequisites: Go 1.25, Python 3.11+, GNU make, and Docker with the Compose plugin (only for the
+Prerequisites: Go 1.26, Python 3.11+, GNU make, and Docker with the Compose plugin (only for the
 integration, SIL and image-build stages).
 
 ```bash
