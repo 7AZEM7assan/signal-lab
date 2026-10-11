@@ -28,11 +28,11 @@ jobs:
           - { name: Windows, runner: windows-2025, target: win, builder: "--win --x64 --arm64" }
           - { name: macOS, runner: macos-15, target: mac, builder: "--mac --x64 --arm64" }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -71,7 +71,7 @@ jobs:
         run: |
           sudo apt-get update -y && sudo apt-get install -y xvfb
           SMOKE_PACKAGED="$PWD/dist/linux-unpacked/signal-lab" xvfb-run -a node test/smoke.mjs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: signal-lab-${{ matrix.target }}
           if-no-files-found: error
@@ -90,7 +90,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: assets
           merge-multiple: true
