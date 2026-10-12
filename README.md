@@ -664,7 +664,7 @@ internal/metrics/       Prometheus instruments
 internal/testdb/        isolated-schema helper for integration tests
 internal/e2e/           ingest -> DB -> HTTP -> WebSocket integration tests
 desktop/                Electron shell, packaging config and end-to-end smoke test
-examples/               toy_receiver.py: a tiny service to try the app against
+examples/               Python and Node.js toy receivers to try the app against
 sim/                    Python simulator, replayer, fault injector, pytest suites (unit + SIL)
 sim/tools/              optional developer tools (screenshot capture, demo recorder)
 scripts/                ci.sh (local CI) and the opt-in pre-push hook
