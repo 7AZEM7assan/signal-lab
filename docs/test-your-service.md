@@ -16,6 +16,7 @@ You do not need a service of your own to see how it works. The repository has a 
 
 ```bash
 python3 examples/toy_receiver.py --capacity 60 --drain 30 --api-key secret
+# Or with Node.js 22+: node examples/toy_receiver.mjs --capacity 60 --drain 30 --api-key secret
 ```
 
 Then, in the app's **Replay** tab:
