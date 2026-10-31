@@ -16,7 +16,7 @@
     "screenshots": "node scripts/build-go.js --host && node test/screenshots.mjs"
   },
   "devDependencies": {
-    "electron": "44.7.0",
+    "electron": "44.9.1",
     "electron-builder": "26.15.3",
     "playwright-core": "1.64.0"
   }
